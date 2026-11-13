@@ -1,102 +1,123 @@
 import { useState } from 'react'
-import { Plus, User, Users } from 'lucide-react'
+import { Loader2, Plus, User, Users } from 'lucide-react'
+import { useAppContext } from '../context/AppContext'
+import { canDelegate, canShare } from '../lib/permissions'
 import { Button } from './ui/button'
 import {
-  Dialog, DialogContent, DialogDescription,
-  DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
 } from './ui/dialog'
 import { Input } from './ui/input'
 import { Label } from './ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import { Textarea } from './ui/textarea'
-import { useAppContext } from '../context/AppContext'
-import { canDelegate, canShare } from '../data/mockData'
+
+const PRIORITY_FALLBACK = [
+  { id: 1, name: 'Niski' },
+  { id: 2, name: 'Normalny' },
+  { id: 3, name: 'Wysoki' },
+  { id: 4, name: 'Pilny' },
+]
+
+const PRIORITY_DOTS = {
+  1: '🟢',
+  2: '🔵',
+  3: '🟠',
+  4: '🔴',
+}
 
 /**
  * AddTaskDialog - modal do tworzenia nowego zadania.
- * 
- * Dwa tryby przypisania:
- * 1. "self" - tworzę zadanie dla siebie (automatyczne przypisanie do mnie)
+ *
+ * Tryby przypisania:
+ * 1. "self" - tworzę zadanie dla siebie
  * 2. "assign" - delegowanie (do osoby o niższym szczeblu)
  * 3. "share" - udostępnienie (do osoby o tym samym szczeblu)
  */
 export function AddTaskDialog() {
-  const { currentUserId, currentUser, addTask, assignTask, users, priorities } = useAppContext()
+  const { currentUserId, currentUser, addTask, users, priorities } = useAppContext()
 
-  // Stan formularza
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState('self') // 'self' | 'assign' | 'share'
   const [title, setTitle] = useState('')
   const [shortDesc, setShortDesc] = useState('')
+  const [fullDesc, setFullDesc] = useState('')
   const [dueDate, setDueDate] = useState('')
   const [selectedUser, setSelectedUser] = useState('')
-  const [selectedPriority, setSelectedPriority] = useState('2') // Domyślnie Normalny
+  const [selectedPriority, setSelectedPriority] = useState('2')
+  const [minDueDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Filtrujemy użytkowników wg reguł hierarchii
-  // canDelegate/canShare to funkcje z mockData.js
-  const delegatableUsers = users.filter(u =>
-    u.id !== currentUserId && canDelegate(currentUserId, u.id)
+  const activeUsers = users.filter((u) => u.is_active !== 0 && u.is_active !== false)
+  const delegatableUsers = activeUsers.filter(
+    (u) => u.id !== currentUserId && canDelegate(currentUser, u)
   )
-  const sharableUsers = users.filter(u =>
-    u.id !== currentUserId && canShare(currentUserId, u.id)
+  const sharableUsers = activeUsers.filter(
+    (u) => u.id !== currentUserId && canShare(currentUser, u)
   )
 
-  const handleSubmit = (e) => {
-    e.preventDefault()
-
-    // Walidacja (prosta, frontendowa)
-    if (!title.trim()) return
-
-    // Tworzymy zadanie
-    const newTask = addTask({
-      title: title.trim(),
-      short_desc: shortDesc.trim() || null,
-      full_desc: null,
-      due_date: dueDate ? new Date(dueDate).toISOString() : null,
-      status_id: 1, // "Do zrobienia"
-    })
-
-    // Przypisujemy wg wybranego trybu
-    if (mode === 'self') {
-      // Przypisuję sobie - automatycznie akceptowane
-      assignTask(newTask.id, currentUserId, parseInt(selectedPriority), 'accepted')
-    } else if (mode === 'assign' && selectedUser) {
-      // Delegowanie - status 'pending' (czeka na akceptację)
-      assignTask(newTask.id, parseInt(selectedUser), parseInt(selectedPriority), 'pending')
-    } else if (mode === 'share' && selectedUser) {
-      // Udostępnienie - automatycznie 'accepted' (obie strony mają to zadanie)
-      assignTask(newTask.id, currentUserId, parseInt(selectedPriority), 'accepted')
-      assignTask(newTask.id, parseInt(selectedUser), parseInt(selectedPriority), 'accepted')
-    }
-
-    // Reset formularza i zamknięcie modalu
-    resetForm()
-    setOpen(false)
-  }
+  const priorityOptions = priorities.length > 0 ? priorities : PRIORITY_FALLBACK
 
   const resetForm = () => {
     setTitle('')
     setShortDesc('')
+    setFullDesc('')
     setDueDate('')
     setMode('self')
     setSelectedUser('')
     setSelectedPriority('2')
   }
 
+  const handleOpenChange = (nextOpen) => {
+    if (isSubmitting) return
+    setOpen(nextOpen)
+    if (!nextOpen) {
+      resetForm()
+    }
+  }
+
+  const handleModeChange = (nextMode) => {
+    setMode(nextMode)
+    setSelectedUser('')
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!title.trim() || isSubmitting) return
+    if (mode !== 'self' && !selectedUser) return
+
+    setIsSubmitting(true)
+    try {
+      await addTask({
+        title: title.trim(),
+        short_desc: shortDesc.trim() || null,
+        full_desc: fullDesc.trim() || null,
+        due_date: dueDate ? new Date(dueDate).toISOString() : null,
+        assignment_mode: mode,
+        assignee_id: mode !== 'self' && selectedUser ? Number(selectedUser) : undefined,
+        priority_id: Number(selectedPriority),
+      })
+      resetForm()
+      setOpen(false)
+    } catch {
+      // Błąd jest obsługiwany przez AppContext (toast)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const isSubmitDisabled =
+    !title.trim() || (mode !== 'self' && !selectedUser) || isSubmitting
+
   return (
-    /*
-     * Dialog - kontrolowany przez stan open/setOpen.
-     * Gdy open=true, Radix renderuje DialogContent w portalu (poza drzewem DOM).
-     * Gdy open=false, DialogContent jest odmontowany.
-     */
-    <Dialog open={open} onOpenChange={setOpen}>
-      {/*
-       * DialogTrigger - kliknięcie tego elementu ustawia open=true.
-       * asChild - przekazuje obsługę kliknięcia do dziecka (Button)
-       *           zamiast owijać go w dodatkowy div
-       */}
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button className="gap-2">
+        <Button size="sm" className="gap-1.5">
           <Plus className="h-4 w-4" />
           Nowe zadanie
         </Button>
@@ -110,58 +131,69 @@ export function AddTaskDialog() {
           </DialogDescription>
         </DialogHeader>
 
-        {/* onSubmit zamiast onClick na buttonie - obsługuje też Enter w polu */}
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Tytuł */}
           <div className="space-y-1.5">
             <Label htmlFor="task-title">Tytuł *</Label>
             <Input
               id="task-title"
               placeholder="Np. Naprawić błąd logowania..."
               value={title}
-              onChange={e => setTitle(e.target.value)}
+              onChange={(e) => setTitle(e.target.value)}
+              disabled={isSubmitting}
               required
             />
           </div>
 
-          {/* Krótki opis */}
           <div className="space-y-1.5">
             <Label htmlFor="task-desc">Krótki opis</Label>
             <Textarea
               id="task-desc"
               placeholder="Opisz zadanie w kilku zdaniach..."
               value={shortDesc}
-              onChange={e => setShortDesc(e.target.value)}
-              rows={3}
+              onChange={(e) => setShortDesc(e.target.value)}
+              disabled={isSubmitting}
+              rows={2}
             />
           </div>
 
-          {/* Deadline */}
+          <div className="space-y-1.5">
+            <Label htmlFor="task-full-desc">Szczegóły (opcjonalnie)</Label>
+            <Textarea
+              id="task-full-desc"
+              placeholder="Dodatkowe wymagania, linki lub kryteria akceptacji..."
+              value={fullDesc}
+              onChange={(e) => setFullDesc(e.target.value)}
+              disabled={isSubmitting}
+              rows={2}
+            />
+          </div>
+
           <div className="space-y-1.5">
             <Label htmlFor="task-due">Termin realizacji</Label>
             <Input
               id="task-due"
               type="date"
               value={dueDate}
-              onChange={e => setDueDate(e.target.value)}
-              min={new Date().toISOString().split('T')[0]}
-              className="[color-scheme:dark]" // Input date w dark mode
+              onChange={(e) => setDueDate(e.target.value)}
+              min={minDueDate}
+              disabled={isSubmitting}
+              className="[color-scheme:dark]"
             />
           </div>
 
-          {/* Tryb przypisania */}
           <div className="space-y-2">
             <Label>Kto wykonuje?</Label>
             <div className="grid grid-cols-3 gap-2">
-              {/* Przycisk "Ja" */}
               <button
                 type="button"
-                onClick={() => setMode('self')}
+                onClick={() => handleModeChange('self')}
+                disabled={isSubmitting}
                 className={`
                   flex flex-col items-center gap-1.5 p-3 rounded-lg border text-xs transition-colors
-                  ${mode === 'self'
-                    ? 'border-zinc-500 bg-zinc-800 text-zinc-100'
-                    : 'border-zinc-800 text-zinc-500 hover:border-zinc-700'
+                  ${
+                    mode === 'self'
+                      ? 'border-zinc-500 bg-zinc-800 text-zinc-100'
+                      : 'border-zinc-800 text-zinc-500 hover:border-zinc-700'
                   }
                 `}
               >
@@ -169,16 +201,16 @@ export function AddTaskDialog() {
                 Ja
               </button>
 
-              {/* Przycisk "Zlecam" - tylko gdy mamy komu zlecić */}
               <button
                 type="button"
-                onClick={() => delegatableUsers.length > 0 && setMode('assign')}
-                disabled={delegatableUsers.length === 0}
+                onClick={() => delegatableUsers.length > 0 && handleModeChange('assign')}
+                disabled={delegatableUsers.length === 0 || isSubmitting}
                 className={`
                   flex flex-col items-center gap-1.5 p-3 rounded-lg border text-xs transition-colors
-                  ${mode === 'assign'
-                    ? 'border-zinc-500 bg-zinc-800 text-zinc-100'
-                    : 'border-zinc-800 text-zinc-500 hover:border-zinc-700'
+                  ${
+                    mode === 'assign'
+                      ? 'border-zinc-500 bg-zinc-800 text-zinc-100'
+                      : 'border-zinc-800 text-zinc-500 hover:border-zinc-700'
                   }
                   disabled:opacity-40 disabled:cursor-not-allowed
                 `}
@@ -187,16 +219,16 @@ export function AddTaskDialog() {
                 Zlecam
               </button>
 
-              {/* Przycisk "Udostępniam" */}
               <button
                 type="button"
-                onClick={() => sharableUsers.length > 0 && setMode('share')}
-                disabled={sharableUsers.length === 0}
+                onClick={() => sharableUsers.length > 0 && handleModeChange('share')}
+                disabled={sharableUsers.length === 0 || isSubmitting}
                 className={`
                   flex flex-col items-center gap-1.5 p-3 rounded-lg border text-xs transition-colors
-                  ${mode === 'share'
-                    ? 'border-zinc-500 bg-zinc-800 text-zinc-100'
-                    : 'border-zinc-800 text-zinc-500 hover:border-zinc-700'
+                  ${
+                    mode === 'share'
+                      ? 'border-zinc-500 bg-zinc-800 text-zinc-100'
+                      : 'border-zinc-800 text-zinc-500 hover:border-zinc-700'
                   }
                   disabled:opacity-40 disabled:cursor-not-allowed
                 `}
@@ -207,20 +239,22 @@ export function AddTaskDialog() {
             </div>
           </div>
 
-          {/* Select użytkownika - tylko gdy tryb assign lub share */}
           {(mode === 'assign' || mode === 'share') && (
             <div className="space-y-1.5">
-              <Label>
-                {mode === 'assign' ? 'Zlecam komu:' : 'Udostępniam komu:'}
-              </Label>
-              <Select value={selectedUser} onValueChange={setSelectedUser}>
+              <Label>{mode === 'assign' ? 'Zlecam komu:' : 'Udostępniam komu:'}</Label>
+              <Select
+                value={selectedUser}
+                onValueChange={setSelectedUser}
+                disabled={isSubmitting}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Wybierz osobę..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {(mode === 'assign' ? delegatableUsers : sharableUsers).map(user => (
+                  {(mode === 'assign' ? delegatableUsers : sharableUsers).map((user) => (
                     <SelectItem key={user.id} value={String(user.id)}>
                       {user.first_name} {user.last_name}
+                      {user.position?.name ? ` (${user.position.name})` : ''}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -228,18 +262,22 @@ export function AddTaskDialog() {
             </div>
           )}
 
-          {/* Priorytet */}
           <div className="space-y-1.5">
             <Label>Priorytet</Label>
-            <Select value={selectedPriority} onValueChange={setSelectedPriority}>
+            <Select
+              value={selectedPriority}
+              onValueChange={setSelectedPriority}
+              disabled={isSubmitting}
+            >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="1">🟢 Niski</SelectItem>
-                <SelectItem value="2">🔵 Normalny</SelectItem>
-                <SelectItem value="3">🟠 Wysoki</SelectItem>
-                <SelectItem value="4">🔴 Pilny</SelectItem>
+                {priorityOptions.map((priority) => (
+                  <SelectItem key={priority.id} value={String(priority.id)}>
+                    {PRIORITY_DOTS[priority.id] || '•'} {priority.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -248,12 +286,14 @@ export function AddTaskDialog() {
             <Button
               type="button"
               variant="ghost"
-              onClick={() => { resetForm(); setOpen(false) }}
+              disabled={isSubmitting}
+              onClick={() => handleOpenChange(false)}
             >
               Anuluj
             </Button>
-            <Button type="submit" disabled={!title.trim()}>
-              Utwórz zadanie
+            <Button type="submit" disabled={isSubmitDisabled} className="gap-1.5">
+              {isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {isSubmitting ? 'Tworzenie...' : 'Utwórz zadanie'}
             </Button>
           </DialogFooter>
         </form>

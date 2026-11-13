@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { Share2, UserCheck, UserPlus, Users } from 'lucide-react'
+import { Loader2, Share2, UserCheck, UserPlus, Users } from 'lucide-react'
+import { useAppContext } from '../context/AppContext'
+import { canDelegate, canShare } from '../lib/permissions'
 import { Button } from './ui/button'
 import {
   Dialog,
@@ -12,69 +14,98 @@ import {
 } from './ui/dialog'
 import { Label } from './ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
-import { useAppContext } from '../context/AppContext'
-import { canDelegate, canShare } from '../data/mockData'
+
+const PRIORITY_FALLBACK = [
+  { id: 1, name: 'Niski' },
+  { id: 2, name: 'Normalny' },
+  { id: 3, name: 'Wysoki' },
+  { id: 4, name: 'Pilny' },
+]
+
+const PRIORITY_DOTS = {
+  1: '🟢',
+  2: '🔵',
+  3: '🟠',
+  4: '🔴',
+}
 
 /**
  * ShareOrDelegateDialog - modal do przekazywania (re-delegacji) lub udostępniania
  * istniejącego zadania innym pracownikom zgodnie z regułami hierarchii stanowisk.
- *
- * Reguły:
- * 1. Delegowanie (Zlecenie dalej) -> tylko pracownikom o niższym szczeblu (wyższe priority w positions).
- * 2. Udostępnienie (Współpraca) -> pracownikom na tym samym szczeblu.
  */
 export function ShareOrDelegateDialog({ task, trigger }) {
-  const { currentUserId, users, assignTask, assignments, priorities } = useAppContext()
-  const [open, setOpen] = useState(false)
-  const [mode, setMode] = useState('share') // 'share' | 'delegate'
-  const [selectedUser, setSelectedUser] = useState('')
-  const [selectedPriority, setSelectedPriority] = useState('2') // Domyślnie normalny
+  const { currentUser, currentUserId, users, assignTask, assignments, priorities } =
+    useAppContext()
 
-  // Kto jest już przypisany do tego zadania
+  const activeUsers = users.filter((u) => u.is_active !== 0 && u.is_active !== false)
   const alreadyAssignedUserIds = assignments
-    .filter(a => a.task_id === task.id)
-    .map(a => a.employee_id)
+    .filter((a) => a.task_id === task.id)
+    .map((a) => a.employee_id)
 
-  // Dostępni do delegacji (niższy szczebel, jeszcze nieprzypisani)
-  const delegatableUsers = users.filter(
-    u => u.id !== currentUserId &&
-         !alreadyAssignedUserIds.includes(u.id) &&
-         canDelegate(currentUserId, u.id)
+  const delegatableUsers = activeUsers.filter(
+    (u) =>
+      u.id !== currentUserId &&
+      !alreadyAssignedUserIds.includes(u.id) &&
+      canDelegate(currentUser, u)
   )
 
-  // Dostępni do udostępnienia (ten sam szczebel, jeszcze nieprzypisani)
-  const sharableUsers = users.filter(
-    u => u.id !== currentUserId &&
-         !alreadyAssignedUserIds.includes(u.id) &&
-         canShare(currentUserId, u.id)
+  const sharableUsers = activeUsers.filter(
+    (u) =>
+      u.id !== currentUserId &&
+      !alreadyAssignedUserIds.includes(u.id) &&
+      canShare(currentUser, u)
   )
 
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    if (!selectedUser) return
+  const [open, setOpen] = useState(false)
+  const [mode, setMode] = useState(() =>
+    sharableUsers.length === 0 && delegatableUsers.length > 0 ? 'delegate' : 'share'
+  )
+  const [selectedUser, setSelectedUser] = useState('')
+  const [selectedPriority, setSelectedPriority] = useState('2')
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-    const targetUserId = parseInt(selectedUser, 10)
-    const priorityId = parseInt(selectedPriority, 10)
-
-    if (mode === 'delegate') {
-      // Zlecenie niżej -> status pending (czeka na akceptację przez pracownika)
-      assignTask(task.id, targetUserId, priorityId, 'pending')
-    } else {
-      // Udostępnienie na tym samym poziomie -> accepted (wspólna praca nad zadaniem)
-      assignTask(task.id, targetUserId, priorityId, 'accepted')
-    }
-
-    setSelectedUser('')
-    setOpen(false)
-  }
-
+  const priorityOptions = priorities.length > 0 ? priorities : PRIORITY_FALLBACK
   const activeCandidates = mode === 'delegate' ? delegatableUsers : sharableUsers
 
+  const handleOpenChange = (nextOpen) => {
+    if (isSubmitting) return
+    if (nextOpen) {
+      if (sharableUsers.length === 0 && delegatableUsers.length > 0) {
+        setMode('delegate')
+      } else if (delegatableUsers.length === 0 && sharableUsers.length > 0) {
+        setMode('share')
+      }
+      setSelectedUser('')
+    }
+    setOpen(nextOpen)
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!selectedUser || isSubmitting) return
+
+    setIsSubmitting(true)
+    try {
+      await assignTask(task.id, {
+        employee_id: Number(selectedUser),
+        priority_id: Number(selectedPriority),
+        mode,
+      })
+      setSelectedUser('')
+      setOpen(false)
+    } catch {
+      // Błąd jest obsługiwany przez AppContext (toast)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         {trigger || (
           <Button
+            type="button"
             variant="ghost"
             size="sm"
             className="h-7 text-xs text-zinc-400 hover:text-zinc-200 px-2 gap-1"
@@ -94,7 +125,6 @@ export function ShareOrDelegateDialog({ task, trigger }) {
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Wybór akcji */}
           <div className="space-y-2">
             <Label>Wybierz formę przekazania</Label>
             <div className="grid grid-cols-2 gap-2">
@@ -104,12 +134,13 @@ export function ShareOrDelegateDialog({ task, trigger }) {
                   setMode('share')
                   setSelectedUser('')
                 }}
-                disabled={sharableUsers.length === 0}
+                disabled={sharableUsers.length === 0 || isSubmitting}
                 className={`
                   flex flex-col items-center gap-1.5 p-3 rounded-lg border text-xs transition-colors
-                  ${mode === 'share'
-                    ? 'border-zinc-500 bg-zinc-800 text-zinc-100'
-                    : 'border-zinc-800 text-zinc-500 hover:border-zinc-700'
+                  ${
+                    mode === 'share'
+                      ? 'border-zinc-500 bg-zinc-800 text-zinc-100'
+                      : 'border-zinc-800 text-zinc-500 hover:border-zinc-700'
                   }
                   disabled:opacity-40 disabled:cursor-not-allowed
                 `}
@@ -127,12 +158,13 @@ export function ShareOrDelegateDialog({ task, trigger }) {
                   setMode('delegate')
                   setSelectedUser('')
                 }}
-                disabled={delegatableUsers.length === 0}
+                disabled={delegatableUsers.length === 0 || isSubmitting}
                 className={`
                   flex flex-col items-center gap-1.5 p-3 rounded-lg border text-xs transition-colors
-                  ${mode === 'delegate'
-                    ? 'border-zinc-500 bg-zinc-800 text-zinc-100'
-                    : 'border-zinc-800 text-zinc-500 hover:border-zinc-700'
+                  ${
+                    mode === 'delegate'
+                      ? 'border-zinc-500 bg-zinc-800 text-zinc-100'
+                      : 'border-zinc-800 text-zinc-500 hover:border-zinc-700'
                   }
                   disabled:opacity-40 disabled:cursor-not-allowed
                 `}
@@ -146,7 +178,6 @@ export function ShareOrDelegateDialog({ task, trigger }) {
             </div>
           </div>
 
-          {/* Wybór osoby */}
           <div className="space-y-1.5">
             <Label>
               {mode === 'delegate'
@@ -158,14 +189,19 @@ export function ShareOrDelegateDialog({ task, trigger }) {
                 Brak osób spełniających kryteria hierarchii dla tej akcji.
               </div>
             ) : (
-              <Select value={selectedUser} onValueChange={setSelectedUser}>
+              <Select
+                value={selectedUser}
+                onValueChange={setSelectedUser}
+                disabled={isSubmitting}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Wybierz osobę z listy..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {activeCandidates.map(user => (
+                  {activeCandidates.map((user) => (
                     <SelectItem key={user.id} value={String(user.id)}>
                       {user.first_name} {user.last_name}
+                      {user.position?.name ? ` (${user.position.name})` : ''}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -173,18 +209,22 @@ export function ShareOrDelegateDialog({ task, trigger }) {
             )}
           </div>
 
-          {/* Wybór priorytetu */}
           <div className="space-y-1.5">
             <Label>Priorytet dla nowej osoby</Label>
-            <Select value={selectedPriority} onValueChange={setSelectedPriority}>
+            <Select
+              value={selectedPriority}
+              onValueChange={setSelectedPriority}
+              disabled={isSubmitting}
+            >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="1">🟢 Niski</SelectItem>
-                <SelectItem value="2">🔵 Normalny</SelectItem>
-                <SelectItem value="3">🟠 Wysoki</SelectItem>
-                <SelectItem value="4">🔴 Pilny</SelectItem>
+                {priorityOptions.map((priority) => (
+                  <SelectItem key={priority.id} value={String(priority.id)}>
+                    {PRIORITY_DOTS[priority.id] || '•'} {priority.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -193,16 +233,22 @@ export function ShareOrDelegateDialog({ task, trigger }) {
             <Button
               type="button"
               variant="ghost"
-              onClick={() => setOpen(false)}
+              disabled={isSubmitting}
+              onClick={() => handleOpenChange(false)}
             >
               Anuluj
             </Button>
             <Button
               type="submit"
-              disabled={!selectedUser}
+              disabled={!selectedUser || isSubmitting}
+              className="gap-1.5"
             >
-              <UserCheck className="h-3.5 w-3.5 mr-1" />
-              Zatwierdź
+              {isSubmitting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <UserCheck className="h-3.5 w-3.5" />
+              )}
+              {isSubmitting ? 'Przekazywanie...' : 'Zatwierdź'}
             </Button>
           </DialogFooter>
         </form>
