@@ -7,8 +7,12 @@ import { env } from './config/env.js';
 import { AppError, errorHandler } from './middleware/errorHandler.js';
 import adminRoutes from './routes/adminRoutes.js';
 import authRoutes from './routes/authRoutes.js';
+import { applicationRouter, bugRouter, orgBugRouter } from './routes/bugRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import metaRoutes from './routes/metaRoutes.js';
+import onboardingRoutes from './routes/onboardingRoutes.js';
+import organizationRoutes from './routes/organizationRoutes.js';
+import positionsRoutes from './routes/positionsRoutes.js';
 import profileRoutes from './routes/profileRoutes.js';
 import taskRoutes from './routes/taskRoutes.js';
 
@@ -40,6 +44,13 @@ export function createApp() {
   app.use('/api/tasks', taskRoutes);
   app.use('/api/dashboard', dashboardRoutes);
   app.use('/api/admin', adminRoutes);
+  app.use('/api/positions', positionsRoutes);
+  app.use('/api/onboarding', onboardingRoutes);
+  app.use('/api/organizations', organizationRoutes);
+  app.use('/api/applications', applicationRouter);
+  app.use('/api/bugs', bugRouter);
+  app.use('/api/organization/bugs', orgBugRouter);
+  app.use('/api/organizations/bugs', orgBugRouter);
 
   app.use('/api', (_req, _res, next) => {
     next(new AppError(404, 'NOT_FOUND', 'Nie znaleziono zasobu API'));

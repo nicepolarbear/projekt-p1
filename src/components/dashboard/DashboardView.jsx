@@ -1,25 +1,37 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   ArrowLeft,
+  Bug,
   LayoutDashboard,
   ListChecks,
   RefreshCw,
   ScrollText,
   ShieldAlert,
+  ShieldCheck,
+  UserCheck,
   Users,
 } from 'lucide-react'
 import { useAppContext } from '../../context/AppContext'
 import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../../hooks/useToast'
-import { canAccessDashboard } from '../../lib/permissions'
+import {
+  canAccessDashboard,
+  canApproveJoinRequests,
+  canGenerateInvites,
+  canManagePermissions,
+  canTriageBugs,
+} from '../../lib/permissions'
 import { dashboardService } from '../../services/dashboardService'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs'
 import { AuditLogPanel } from './AuditLogPanel'
+import { BugTriagePanel } from './BugTriagePanel'
 import { DashboardOverview } from './DashboardOverview'
 import { Avatar, RoleBadge } from './DashboardShared'
+import { JoinRequestsPanel } from './JoinRequestsPanel'
+import { PermissionsMatrixPanel } from './PermissionsMatrixPanel'
 import { TaskOversightPanel } from './TaskOversightPanel'
 import { UserManagementPanel } from './UserManagementPanel'
 import { formatDateTimePl, getUserFullName, resolveUserRole } from './dashboardUtils'
@@ -159,6 +171,11 @@ export function DashboardView({ onBackToWorkspace, onBack }) {
   )
   const currentUserRole = resolveUserRole(currentUser, roles)
 
+  const showBugsTab = canTriageBugs(currentUser)
+  const showJoinRequestsTab =
+    canApproveJoinRequests(currentUser) || canGenerateInvites(currentUser)
+  const showPermissionsTab = canManagePermissions(currentUser)
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 py-6 space-y-6">
@@ -236,10 +253,28 @@ export function DashboardView({ onBackToWorkspace, onBack }) {
                 </Badge>
               )}
             </TabsTrigger>
+            {showBugsTab && (
+              <TabsTrigger value="bugs" className="gap-2 py-2 px-3 text-xs sm:text-sm">
+                <Bug className="h-4 w-4" />
+                Zgłoszenia błędów
+              </TabsTrigger>
+            )}
             <TabsTrigger value="users" className="gap-2 py-2 px-3 text-xs sm:text-sm">
               <Users className="h-4 w-4" />
               Zespół i użytkownicy
             </TabsTrigger>
+            {showJoinRequestsTab && (
+              <TabsTrigger value="join-requests" className="gap-2 py-2 px-3 text-xs sm:text-sm">
+                <UserCheck className="h-4 w-4" />
+                Wnioski i kody
+              </TabsTrigger>
+            )}
+            {showPermissionsTab && (
+              <TabsTrigger value="permissions" className="gap-2 py-2 px-3 text-xs sm:text-sm">
+                <ShieldCheck className="h-4 w-4" />
+                Matryca uprawnień
+              </TabsTrigger>
+            )}
             <TabsTrigger value="audit" className="gap-2 py-2 px-3 text-xs sm:text-sm">
               <ScrollText className="h-4 w-4" />
               Dziennik audytu
@@ -266,12 +301,33 @@ export function DashboardView({ onBackToWorkspace, onBack }) {
             />
           </TabsContent>
 
+          {showBugsTab && (
+            <TabsContent value="bugs" className="mt-4">
+              <BugTriagePanel
+                refreshSignal={refreshSignal}
+                onTaskCreated={handleDataMutated}
+              />
+            </TabsContent>
+          )}
+
           <TabsContent value="users" className="mt-4">
             <UserManagementPanel
               refreshSignal={refreshSignal}
               onUserMutated={handleDataMutated}
             />
           </TabsContent>
+
+          {showJoinRequestsTab && (
+            <TabsContent value="join-requests" className="mt-4">
+              <JoinRequestsPanel refreshSignal={refreshSignal} />
+            </TabsContent>
+          )}
+
+          {showPermissionsTab && (
+            <TabsContent value="permissions" className="mt-4">
+              <PermissionsMatrixPanel refreshSignal={refreshSignal} />
+            </TabsContent>
+          )}
 
           <TabsContent value="audit" className="mt-4">
             <AuditLogPanel refreshSignal={refreshSignal} />

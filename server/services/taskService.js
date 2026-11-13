@@ -49,7 +49,7 @@ function mapAssignmentRow(row) {
         id: row.emp_position_id,
         name: row.emp_pos_name,
         priority: row.emp_pos_priority,
-        is_delegatable: row.emp_pos_is_delegatable,
+        is_delegatable: Boolean(row.emp_pos_is_delegatable),
       },
     },
     priority: {
@@ -60,13 +60,13 @@ function mapAssignmentRow(row) {
   };
 }
 
-export function fetchAssignmentsForTaskIds(db, taskIds) {
+export async function fetchAssignmentsForTaskIds(db, taskIds) {
   if (!Array.isArray(taskIds) || taskIds.length === 0) {
     return [];
   }
 
   const placeholders = taskIds.map(() => '?').join(', ');
-  const rows = db
+  const rows = await db
     .prepare(
       `
       SELECT
@@ -103,13 +103,13 @@ export function fetchAssignmentsForTaskIds(db, taskIds) {
   return rows.map(mapAssignmentRow);
 }
 
-export function hydrateTaskRows(db, taskRows) {
+export async function hydrateTaskRows(db, taskRows) {
   if (!Array.isArray(taskRows) || taskRows.length === 0) {
     return { tasks: [], assignments: [] };
   }
 
   const taskIds = taskRows.map((row) => row.id);
-  const allAssignments = fetchAssignmentsForTaskIds(db, taskIds);
+  const allAssignments = await fetchAssignmentsForTaskIds(db, taskIds);
   const byTaskId = new Map();
 
   for (const assignment of allAssignments) {
@@ -145,15 +145,15 @@ export function hydrateTaskRows(db, taskRows) {
   return { tasks, assignments: allAssignments };
 }
 
-function fetchHydratedTaskById(db, taskId) {
-  const row = db.prepare(`${BASE_TASK_SELECT} WHERE t.id = ?`).get(taskId);
+async function fetchHydratedTaskById(db, taskId) {
+  const row = await db.prepare(`${BASE_TASK_SELECT} WHERE t.id = ?`).get(taskId);
   if (!row) return null;
-  const { tasks, assignments } = hydrateTaskRows(db, [row]);
+  const { tasks, assignments } = await hydrateTaskRows(db, [row]);
   return { task: tasks[0], assignments };
 }
 
-function fetchAssignmentByCompositeKey(db, taskId, employeeId) {
-  const row = db
+async function fetchAssignmentByCompositeKey(db, taskId, employeeId) {
+  const row = await db
     .prepare(
       `
       SELECT
@@ -204,7 +204,7 @@ function normalizeDueDate(val) {
   return new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
-export function listTasks({ actor, scope = 'active' }) {
+export async function listTasks({ actor, scope = 'active' }) {
   const db = getDb();
   const isPrivileged = actor.role === 'admin' || actor.role === 'dyrektor';
 
@@ -212,34 +212,34 @@ export function listTasks({ actor, scope = 'active' }) {
     if (!isPrivileged) {
       throw new AppError(403, 'FORBIDDEN', 'Brak uprawnień do wyświetlenia wszystkich zadań');
     }
-    const rows = db.prepare(`${BASE_TASK_SELECT} ORDER BY t.created_at DESC, t.id DESC`).all();
-    return hydrateTaskRows(db, rows);
+    const rows = await db.prepare(`${BASE_TASK_SELECT} ORDER BY t.created_at DESC, t.id DESC`).all();
+    return await hydrateTaskRows(db, rows);
   }
 
   if (scope === 'created') {
-    const rows = db
+    const rows = await db
       .prepare(
         `${BASE_TASK_SELECT}
          WHERE t.deleted_at IS NULL AND t.creator_id = ?
          ORDER BY t.created_at DESC, t.id DESC`
       )
       .all(actor.id);
-    return hydrateTaskRows(db, rows);
+    return await hydrateTaskRows(db, rows);
   }
 
   if (scope === 'deleted') {
     if (isPrivileged) {
-      const rows = db
+      const rows = await db
         .prepare(
           `${BASE_TASK_SELECT}
            WHERE t.deleted_at IS NOT NULL
            ORDER BY t.deleted_at DESC, t.id DESC`
         )
         .all();
-      return hydrateTaskRows(db, rows);
+      return await hydrateTaskRows(db, rows);
     }
 
-    const rows = db
+    const rows = await db
       .prepare(
         `${BASE_TASK_SELECT}
          WHERE t.deleted_at IS NOT NULL
@@ -253,24 +253,24 @@ export function listTasks({ actor, scope = 'active' }) {
          ORDER BY t.deleted_at DESC, t.id DESC`
       )
       .all(actor.id, actor.id);
-    return hydrateTaskRows(db, rows);
+    return await hydrateTaskRows(db, rows);
   }
 
   // scope === 'active'
   if (isPrivileged) {
-    const rows = db
+    const rows = await db
       .prepare(
         `${BASE_TASK_SELECT}
          WHERE t.deleted_at IS NULL
          ORDER BY t.created_at DESC, t.id DESC`
       )
       .all();
-    return hydrateTaskRows(db, rows);
+    return await hydrateTaskRows(db, rows);
   }
 
   if (actor.role === 'kierownik') {
     const actorPriority = actor.position?.priority ?? 999;
-    const rows = db
+    const rows = await db
       .prepare(
         `${BASE_TASK_SELECT}
          WHERE t.deleted_at IS NULL
@@ -289,11 +289,11 @@ export function listTasks({ actor, scope = 'active' }) {
          ORDER BY t.created_at DESC, t.id DESC`
       )
       .all(actor.id, actorPriority, actor.id, actorPriority);
-    return hydrateTaskRows(db, rows);
+    return await hydrateTaskRows(db, rows);
   }
 
   // pracownik
-  const rows = db
+  const rows = await db
     .prepare(
       `${BASE_TASK_SELECT}
        WHERE t.deleted_at IS NULL
@@ -308,10 +308,10 @@ export function listTasks({ actor, scope = 'active' }) {
     )
     .all(actor.id, actor.id);
 
-  return hydrateTaskRows(db, rows);
+  return await hydrateTaskRows(db, rows);
 }
 
-export function createTask({ actor, payload, ipAddress = null, userAgent = null }) {
+export async function createTask({ actor, payload, ipAddress = null, userAgent = null }) {
   const {
     title,
     short_desc = null,
@@ -344,7 +344,7 @@ export function createTask({ actor, payload, ipAddress = null, userAgent = null 
       );
     }
 
-    const targetRow = fetchUserRowById(assignee_id, db);
+    const targetRow = await fetchUserRowById(assignee_id, db);
     if (!targetRow) {
       throw new AppError(404, 'USER_NOT_FOUND', 'Nie znaleziono docelowego użytkownika');
     }
@@ -381,8 +381,8 @@ export function createTask({ actor, payload, ipAddress = null, userAgent = null 
 
   const now = nowIso();
 
-  const createdTaskId = withTransaction((tx) => {
-    const insertResult = tx
+  const createdTaskId = await withTransaction(async (tx) => {
+    const insertResult = await tx
       .prepare(
         `
         INSERT INTO tasks (
@@ -415,21 +415,21 @@ export function createTask({ actor, payload, ipAddress = null, userAgent = null 
     const createdAssignments = [];
 
     if (assignment_mode === 'self') {
-      insertAssignment.run(taskId, actor.id, actor.id, priority_id, 'accepted', now, now);
+      await insertAssignment.run(taskId, actor.id, actor.id, priority_id, 'accepted', now, now);
       createdAssignments.push({ employee_id: actor.id, assignment_status: 'accepted' });
     } else if (assignment_mode === 'assign') {
-      insertAssignment.run(taskId, targetUser.id, actor.id, priority_id, 'pending', now, null);
+      await insertAssignment.run(taskId, targetUser.id, actor.id, priority_id, 'pending', now, null);
       createdAssignments.push({ employee_id: targetUser.id, assignment_status: 'pending' });
     } else if (assignment_mode === 'share') {
-      insertAssignment.run(taskId, actor.id, actor.id, priority_id, 'accepted', now, now);
-      insertAssignment.run(taskId, targetUser.id, actor.id, priority_id, 'accepted', now, now);
+      await insertAssignment.run(taskId, actor.id, actor.id, priority_id, 'accepted', now, now);
+      await insertAssignment.run(taskId, targetUser.id, actor.id, priority_id, 'accepted', now, now);
       createdAssignments.push(
         { employee_id: actor.id, assignment_status: 'accepted' },
         { employee_id: targetUser.id, assignment_status: 'accepted' }
       );
     }
 
-    logAudit(tx, {
+    await logAudit(tx, {
       actorUserId: actor.id,
       action: 'TASK_CREATED',
       entityType: 'task',
@@ -444,7 +444,7 @@ export function createTask({ actor, payload, ipAddress = null, userAgent = null 
     });
 
     for (const item of createdAssignments) {
-      logAudit(tx, {
+      await logAudit(tx, {
         actorUserId: actor.id,
         action: 'TASK_ASSIGNED',
         entityType: 'task_assignment',
@@ -463,12 +463,12 @@ export function createTask({ actor, payload, ipAddress = null, userAgent = null 
     return taskId;
   });
 
-  return fetchHydratedTaskById(db, createdTaskId);
+  return await fetchHydratedTaskById(db, createdTaskId);
 }
 
-export function updateTask({ actor, taskId, updates, ipAddress = null, userAgent = null }) {
+export async function updateTask({ actor, taskId, updates, ipAddress = null, userAgent = null }) {
   const db = getDb();
-  const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
+  const existing = await db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
   if (!existing) {
     throw new AppError(404, 'TASK_NOT_FOUND', 'Nie znaleziono zadania');
   }
@@ -511,10 +511,10 @@ export function updateTask({ actor, taskId, updates, ipAddress = null, userAgent
     setClauses.push('updated_at = ?');
     params.push(now, taskId);
 
-    withTransaction((tx) => {
-      tx.prepare(`UPDATE tasks SET ${setClauses.join(', ')} WHERE id = ?`).run(...params);
+    await withTransaction(async (tx) => {
+      await tx.prepare(`UPDATE tasks SET ${setClauses.join(', ')} WHERE id = ?`).run(...params);
 
-      logAudit(tx, {
+      await logAudit(tx, {
         actorUserId: actor.id,
         action: 'TASK_UPDATED',
         entityType: 'task',
@@ -526,12 +526,12 @@ export function updateTask({ actor, taskId, updates, ipAddress = null, userAgent
     });
   }
 
-  return fetchHydratedTaskById(db, taskId);
+  return await fetchHydratedTaskById(db, taskId);
 }
 
-export function updateTaskStatus({ actor, taskId, statusId, ipAddress = null, userAgent = null }) {
+export async function updateTaskStatus({ actor, taskId, statusId, ipAddress = null, userAgent = null }) {
   const db = getDb();
-  const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
+  const existing = await db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
   if (!existing) {
     throw new AppError(404, 'TASK_NOT_FOUND', 'Nie znaleziono zadania');
   }
@@ -541,7 +541,7 @@ export function updateTaskStatus({ actor, taskId, statusId, ipAddress = null, us
 
   const isPrivileged = actor.role === 'admin' || actor.role === 'dyrektor';
   const isCreator = existing.creator_id === actor.id;
-  const actorAssignment = db
+  const actorAssignment = await db
     .prepare('SELECT assignment_status FROM task_assignments WHERE task_id = ? AND employee_id = ?')
     .get(taskId, actor.id);
   const isAcceptedAssignee = actorAssignment?.assignment_status === 'accepted';
@@ -565,12 +565,38 @@ export function updateTaskStatus({ actor, taskId, statusId, ipAddress = null, us
   const now = nowIso();
   const completedAt = statusId === 3 ? existing.completed_at || now : null;
 
-  withTransaction((tx) => {
-    tx.prepare(
+  await withTransaction(async (tx) => {
+    await tx.prepare(
       'UPDATE tasks SET status_id = ?, completed_at = ?, updated_at = ? WHERE id = ?'
     ).run(statusId, completedAt, now, taskId);
 
-    logAudit(tx, {
+    if (statusId === 3) {
+      const links = await tx
+        .prepare('SELECT bug_report_id FROM bug_task_links WHERE task_id = ?')
+        .all(taskId);
+
+      for (const link of links) {
+        await tx.prepare(`
+          UPDATE bug_reports
+          SET status = 'resolved', updated_at = ?
+          WHERE id = ? AND status != 'resolved'
+        `).run(now, link.bug_report_id);
+
+        const actorName = `${actor.first_name || 'System'} ${actor.last_name || ''}`.trim();
+        await tx.prepare(`
+          INSERT INTO bug_comments (bug_report_id, user_id, author_name, is_staff, content, created_at)
+          VALUES (?, ?, ?, 1, ?, ?)
+        `).run(
+          link.bug_report_id,
+          actor.id,
+          actorName,
+          `Powiązane zadanie #${taskId} ("${existing.title}") zostało zakończone. Zgłoszenie oznaczono automatycznie jako rozwiązane.`,
+          now
+        );
+      }
+    }
+
+    await logAudit(tx, {
       actorUserId: actor.id,
       action: 'TASK_STATUS_CHANGED',
       entityType: 'task',
@@ -584,12 +610,12 @@ export function updateTaskStatus({ actor, taskId, statusId, ipAddress = null, us
     });
   });
 
-  return fetchHydratedTaskById(db, taskId);
+  return await fetchHydratedTaskById(db, taskId);
 }
 
-export function softDeleteTask({ actor, taskId, ipAddress = null, userAgent = null }) {
+export async function softDeleteTask({ actor, taskId, ipAddress = null, userAgent = null }) {
   const db = getDb();
-  const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
+  const existing = await db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
   if (!existing) {
     throw new AppError(404, 'TASK_NOT_FOUND', 'Nie znaleziono zadania');
   }
@@ -605,14 +631,14 @@ export function softDeleteTask({ actor, taskId, ipAddress = null, userAgent = nu
 
   const now = nowIso();
 
-  withTransaction((tx) => {
-    tx.prepare('UPDATE tasks SET deleted_at = ?, updated_at = ? WHERE id = ?').run(
+  await withTransaction(async (tx) => {
+    await tx.prepare('UPDATE tasks SET deleted_at = ?, updated_at = ? WHERE id = ?').run(
       now,
       now,
       taskId
     );
 
-    logAudit(tx, {
+    await logAudit(tx, {
       actorUserId: actor.id,
       action: 'TASK_DELETED',
       entityType: 'task',
@@ -623,12 +649,12 @@ export function softDeleteTask({ actor, taskId, ipAddress = null, userAgent = nu
     });
   });
 
-  return fetchHydratedTaskById(db, taskId);
+  return await fetchHydratedTaskById(db, taskId);
 }
 
-export function restoreTask({ actor, taskId, ipAddress = null, userAgent = null }) {
+export async function restoreTask({ actor, taskId, ipAddress = null, userAgent = null }) {
   const db = getDb();
-  const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
+  const existing = await db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
   if (!existing) {
     throw new AppError(404, 'TASK_NOT_FOUND', 'Nie znaleziono zadania');
   }
@@ -644,10 +670,10 @@ export function restoreTask({ actor, taskId, ipAddress = null, userAgent = null 
 
   const now = nowIso();
 
-  withTransaction((tx) => {
-    tx.prepare('UPDATE tasks SET deleted_at = NULL, updated_at = ? WHERE id = ?').run(now, taskId);
+  await withTransaction(async (tx) => {
+    await tx.prepare('UPDATE tasks SET deleted_at = NULL, updated_at = ? WHERE id = ?').run(now, taskId);
 
-    logAudit(tx, {
+    await logAudit(tx, {
       actorUserId: actor.id,
       action: 'TASK_RESTORED',
       entityType: 'task',
@@ -658,10 +684,10 @@ export function restoreTask({ actor, taskId, ipAddress = null, userAgent = null 
     });
   });
 
-  return fetchHydratedTaskById(db, taskId);
+  return await fetchHydratedTaskById(db, taskId);
 }
 
-export function assignTask({
+export async function assignTask({
   actor,
   taskId,
   employeeId,
@@ -671,7 +697,7 @@ export function assignTask({
   userAgent = null,
 }) {
   const db = getDb();
-  const existingTask = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
+  const existingTask = await db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
   if (!existingTask) {
     throw new AppError(404, 'TASK_NOT_FOUND', 'Nie znaleziono zadania');
   }
@@ -681,7 +707,7 @@ export function assignTask({
 
   const isPrivileged = actor.role === 'admin' || actor.role === 'dyrektor';
   const isCreator = existingTask.creator_id === actor.id;
-  const actorAssignment = db
+  const actorAssignment = await db
     .prepare('SELECT assignment_status FROM task_assignments WHERE task_id = ? AND employee_id = ?')
     .get(taskId, actor.id);
   const isAcceptedAssignee = actorAssignment?.assignment_status === 'accepted';
@@ -702,7 +728,7 @@ export function assignTask({
     );
   }
 
-  const targetRow = fetchUserRowById(employeeId, db);
+  const targetRow = await fetchUserRowById(employeeId, db);
   if (!targetRow) {
     throw new AppError(404, 'USER_NOT_FOUND', 'Nie znaleziono docelowego użytkownika');
   }
@@ -710,7 +736,7 @@ export function assignTask({
     throw new AppError(400, 'TARGET_INACTIVE', 'Docelowy użytkownik jest nieaktywny');
   }
 
-  const duplicate = db
+  const duplicate = await db
     .prepare('SELECT 1 FROM task_assignments WHERE task_id = ? AND employee_id = ?')
     .get(taskId, employeeId);
   if (duplicate) {
@@ -762,8 +788,8 @@ export function assignTask({
   const now = nowIso();
   const respondedAt = resolvedStatus === 'accepted' ? now : null;
 
-  withTransaction((tx) => {
-    tx.prepare(
+  await withTransaction(async (tx) => {
+    await tx.prepare(
       `
       INSERT INTO task_assignments (
         task_id, employee_id, assigned_by, priority_id,
@@ -772,7 +798,7 @@ export function assignTask({
       `
     ).run(taskId, employeeId, actor.id, priorityId, resolvedStatus, now, respondedAt);
 
-    logAudit(tx, {
+    await logAudit(tx, {
       actorUserId: actor.id,
       action: 'TASK_ASSIGNED',
       entityType: 'task_assignment',
@@ -789,10 +815,10 @@ export function assignTask({
     });
   });
 
-  return fetchAssignmentByCompositeKey(db, taskId, employeeId);
+  return await fetchAssignmentByCompositeKey(db, taskId, employeeId);
 }
 
-export function respondToAssignment({
+export async function respondToAssignment({
   actor,
   taskId,
   assignmentStatus,
@@ -801,7 +827,7 @@ export function respondToAssignment({
   userAgent = null,
 }) {
   const db = getDb();
-  const existingTask = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
+  const existingTask = await db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
   if (!existingTask) {
     throw new AppError(404, 'TASK_NOT_FOUND', 'Nie znaleziono zadania');
   }
@@ -809,7 +835,7 @@ export function respondToAssignment({
     throw new AppError(409, 'TASK_DELETED', 'Nie można odpowiedzieć na przypisanie zadania z kosza');
   }
 
-  const existingAssignment = db
+  const existingAssignment = await db
     .prepare('SELECT * FROM task_assignments WHERE task_id = ? AND employee_id = ?')
     .get(taskId, actor.id);
 
@@ -829,8 +855,8 @@ export function respondToAssignment({
     assignmentStatus === 'rejected' ? normalizeOptionalText(rejectionReason) : null;
   const now = nowIso();
 
-  withTransaction((tx) => {
-    tx.prepare(
+  await withTransaction(async (tx) => {
+    await tx.prepare(
       `
       UPDATE task_assignments
       SET assignment_status = ?, rejection_reason = ?, responded_at = ?
@@ -838,7 +864,7 @@ export function respondToAssignment({
       `
     ).run(assignmentStatus, normalizedReason, now, taskId, actor.id);
 
-    logAudit(tx, {
+    await logAudit(tx, {
       actorUserId: actor.id,
       action: 'ASSIGNMENT_UPDATED',
       entityType: 'task_assignment',
@@ -854,5 +880,5 @@ export function respondToAssignment({
     });
   });
 
-  return fetchAssignmentByCompositeKey(db, taskId, actor.id);
+  return await fetchAssignmentByCompositeKey(db, taskId, actor.id);
 }

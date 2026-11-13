@@ -39,9 +39,9 @@ router.get('/', (req, res) => {
   res.json({ user: sanitizeUser(req.user) });
 });
 
-router.patch('/', validateBody(updateProfileSchema), (req, res) => {
+router.patch('/', validateBody(updateProfileSchema), async (req, res) => {
   const { ipAddress, userAgent } = getClientMeta(req);
-  const user = updateProfile({
+  const user = await updateProfile({
     userId: req.user.id,
     updates: req.body,
     ipAddress,
@@ -50,9 +50,9 @@ router.patch('/', validateBody(updateProfileSchema), (req, res) => {
   res.json({ user: sanitizeUser(user) });
 });
 
-router.patch('/preferences', validateBody(updatePreferencesSchema), (req, res) => {
+router.patch('/preferences', validateBody(updatePreferencesSchema), async (req, res) => {
   const { ipAddress, userAgent } = getClientMeta(req);
-  const preferences = updatePreferences({
+  const preferences = await updatePreferences({
     userId: req.user.id,
     prefs: req.body,
     ipAddress,
@@ -61,8 +61,8 @@ router.patch('/preferences', validateBody(updatePreferencesSchema), (req, res) =
   res.json({ preferences });
 });
 
-router.get('/stats', (req, res) => {
-  res.json(getProfileStats(req.user.id));
+router.get('/stats', async (req, res) => {
+  res.json(await getProfileStats(req.user.id));
 });
 
 export default router;

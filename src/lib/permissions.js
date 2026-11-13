@@ -3,11 +3,101 @@
  */
 
 export function canAccessDashboard(user) {
-  return user?.role === 'admin' || user?.role === 'dyrektor'
+  if (!user || user.account_type === 'individual_reporter') return false
+  return (
+    user.role === 'admin' ||
+    user.role === 'dyrektor' ||
+    user.permissions?.is_admin ||
+    user.permissions?.can_view_analytics ||
+    user.permissions?.can_manage_all_tasks ||
+    user.permissions?.can_manage_members ||
+    user.permissions?.can_triage_bugs ||
+    user.permissions?.can_manage_permissions ||
+    user.permissions?.can_approve_join_requests
+  )
+}
+
+export function canManagePermissions(user) {
+  if (!user) return false
+  return (
+    user.role === 'admin' ||
+    user.role === 'dyrektor' ||
+    Boolean(user.permissions?.is_admin) ||
+    Boolean(user.permissions?.can_manage_permissions)
+  )
+}
+
+export function canTriageBugs(user) {
+  if (!user) return false
+  return (
+    user.role === 'admin' ||
+    user.role === 'dyrektor' ||
+    Boolean(user.permissions?.is_admin) ||
+    Boolean(user.permissions?.can_triage_bugs)
+  )
+}
+
+export function canConvertBugsToTasks(user) {
+  if (!user) return false
+  return (
+    user.role === 'admin' ||
+    user.role === 'dyrektor' ||
+    Boolean(user.permissions?.is_admin) ||
+    Boolean(user.permissions?.can_convert_bugs_to_tasks)
+  )
+}
+
+export function canApproveJoinRequests(user) {
+  if (!user) return false
+  return (
+    user.role === 'admin' ||
+    user.role === 'dyrektor' ||
+    Boolean(user.permissions?.is_admin) ||
+    Boolean(user.permissions?.can_approve_join_requests)
+  )
+}
+
+export function canGenerateInvites(user) {
+  if (!user) return false
+  return (
+    user.role === 'admin' ||
+    user.role === 'dyrektor' ||
+    Boolean(user.permissions?.is_admin) ||
+    Boolean(user.permissions?.can_generate_invites)
+  )
+}
+
+export function canManageMembers(user) {
+  if (!user) return false
+  return (
+    user.role === 'admin' ||
+    Boolean(user.permissions?.is_admin) ||
+    Boolean(user.permissions?.can_manage_members)
+  )
+}
+
+export function canViewAnalytics(user) {
+  if (!user) return false
+  return (
+    user.role === 'admin' ||
+    user.role === 'dyrektor' ||
+    Boolean(user.permissions?.is_admin) ||
+    Boolean(user.permissions?.can_view_analytics)
+  )
+}
+
+export function canViewAuditLogs(user) {
+  if (!user) return false
+  return (
+    user.role === 'admin' ||
+    user.role === 'dyrektor' ||
+    Boolean(user.permissions?.is_admin) ||
+    Boolean(user.permissions?.can_view_audit_logs)
+  )
 }
 
 export function canManageUsers(user) {
-  return user?.role === 'admin'
+  return canManageMembers(user)
 }
 
 export function canEditEmployeePosition(actor, target) {

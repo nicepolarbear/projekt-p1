@@ -121,7 +121,7 @@ async function loginAs(email, password = DEFAULT_PASSWORD) {
 
 before(async () => {
   const db = getDb();
-  runMigrations(db);
+  await runMigrations(db);
   await seedDatabase(db, { force: true });
 
   const app = createApp();
@@ -138,7 +138,7 @@ after(async () => {
   if (server) {
     await new Promise((resolve) => server.close(resolve));
   }
-  closeDb();
+  await closeDb();
 
   for (const suffix of ['', '-wal', '-shm']) {
     const target = `${tempDbPath}${suffix}`;

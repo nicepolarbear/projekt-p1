@@ -1,10 +1,14 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import dotenv from 'dotenv';
+
+dotenv.config({ path: ['.env.local', '.env'] });
 
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const PORT = Number.parseInt(process.env.PORT || '3001', 10);
 const DB_PATH = path.resolve(process.cwd(), process.env.DB_PATH || 'data/taskflow.db');
+const DATABASE_URL = process.env.DATABASE_URL || process.env['database.url'] || '';
 const SEED_DEFAULT_PASSWORD = process.env.SEED_DEFAULT_PASSWORD || 'TaskFlow2026!';
 
 function resolveSessionSecret() {
@@ -44,6 +48,7 @@ export const env = Object.freeze({
   NODE_ENV,
   PORT: Number.isNaN(PORT) ? 3001 : PORT,
   DB_PATH,
+  DATABASE_URL,
   SEED_DEFAULT_PASSWORD,
   SESSION_SECRET,
   COOKIE_SECRET: SESSION_SECRET,

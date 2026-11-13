@@ -2,7 +2,7 @@ import { getDb, withTransaction } from '../db/connection.js';
 import { logAudit, nowIso } from './auditService.js';
 import { fetchSanitizedUserById, parsePreferences } from './userMapper.js';
 
-export function updateProfile({ userId, updates, ipAddress = null, userAgent = null }) {
+export async function updateProfile({ userId, updates, ipAddress = null, userAgent = null }) {
   const allowedKeys = ['first_name', 'last_name', 'phone', 'bio', 'avatar_color'];
   const setClauses = [];
   const params = [];
@@ -28,10 +28,10 @@ export function updateProfile({ userId, updates, ipAddress = null, userAgent = n
     params.push(now);
     params.push(userId);
 
-    withTransaction((tx) => {
-      tx.prepare(`UPDATE users SET ${setClauses.join(', ')} WHERE id = ?`).run(...params);
+    await withTransaction(async (tx) => {
+      await tx.prepare(`UPDATE users SET ${setClauses.join(', ')} WHERE id = ?`).run(...params);
 
-      logAudit(tx, {
+      await logAudit(tx, {
         actorUserId: userId,
         action: 'PROFILE_UPDATED',
         entityType: 'user',
@@ -43,24 +43,24 @@ export function updateProfile({ userId, updates, ipAddress = null, userAgent = n
     });
   }
 
-  return fetchSanitizedUserById(userId, db);
+  return await fetchSanitizedUserById(userId, db);
 }
 
-export function updatePreferences({ userId, prefs, ipAddress = null, userAgent = null }) {
+export async function updatePreferences({ userId, prefs, ipAddress = null, userAgent = null }) {
   const now = nowIso();
 
-  const merged = withTransaction((tx) => {
-    const row = tx.prepare('SELECT preferences_json FROM users WHERE id = ?').get(userId);
+  const merged = await withTransaction(async (tx) => {
+    const row = await tx.prepare('SELECT preferences_json FROM users WHERE id = ?').get(userId);
     const current = parsePreferences(row?.preferences_json);
     const next = { ...current, ...prefs };
 
-    tx.prepare('UPDATE users SET preferences_json = ?, updated_at = ? WHERE id = ?').run(
+    await tx.prepare('UPDATE users SET preferences_json = ?, updated_at = ? WHERE id = ?').run(
       JSON.stringify(next),
       now,
       userId
     );
 
-    logAudit(tx, {
+    await logAudit(tx, {
       actorUserId: userId,
       action: 'PREFERENCES_UPDATED',
       entityType: 'user',
@@ -76,11 +76,11 @@ export function updatePreferences({ userId, prefs, ipAddress = null, userAgent =
   return merged;
 }
 
-export function getProfileStats(userId) {
+export async function getProfileStats(userId) {
   const db = getDb();
   const now = nowIso();
 
-  const createdRow = db
+  const createdRow = await db
     .prepare(
       `
       SELECT COUNT(*) AS cnt
@@ -90,7 +90,7 @@ export function getProfileStats(userId) {
     )
     .get(userId);
 
-  const assignedRow = db
+  const assignedRow = await db
     .prepare(
       `
       SELECT COUNT(DISTINCT ta.task_id) AS cnt
@@ -103,7 +103,7 @@ export function getProfileStats(userId) {
     )
     .get(userId);
 
-  const pendingRow = db
+  const pendingRow = await db
     .prepare(
       `
       SELECT COUNT(*) AS cnt
@@ -116,7 +116,7 @@ export function getProfileStats(userId) {
     )
     .get(userId);
 
-  const taskBreakdown = db
+  const taskBreakdown = await db
     .prepare(
       `
       SELECT

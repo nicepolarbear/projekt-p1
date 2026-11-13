@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertCircle, AlertTriangle, Eye, EyeOff, Layers, Loader2, LogIn } from 'lucide-react'
+import { AlertCircle, AlertTriangle, Bug, Eye, EyeOff, Layers, Loader2, LogIn } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { cn } from '../../lib/utils'
 import { Button } from '../ui/button'
@@ -10,7 +10,7 @@ import { DemoCredentialsCard } from './DemoCredentialsCard'
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-export function LoginPage() {
+export function LoginPage({ onOpenOnboarding, onOpenBugReport, onOpenTracker } = {}) {
   const { login, sessionExpiredMessage } = useAuth()
 
   const [email, setEmail] = useState('')
@@ -202,6 +202,38 @@ export function LoginPage() {
                 )}
               </Button>
             </form>
+
+            <div className="flex flex-col gap-2 pt-2 border-t border-zinc-800/80 text-center">
+              {onOpenOnboarding && (
+                <button
+                  type="button"
+                  onClick={onOpenOnboarding}
+                  className="text-xs text-sky-400 hover:text-sky-300 hover:underline transition-colors font-medium py-1"
+                >
+                  Nie masz jeszcze konta? Rozpocznij wdrożenie krok-po-kroku →
+                </button>
+              )}
+              {onOpenBugReport && (
+                <button
+                  type="button"
+                  onClick={onOpenBugReport}
+                  className="text-xs text-zinc-400 hover:text-emerald-400 transition-colors py-1 flex items-center justify-center gap-1.5"
+                >
+                  <span>Chcesz tylko zgłosić usterkę?</span>
+                  <span className="text-emerald-400 font-medium">Zgłoś błąd bez logowania →</span>
+                </button>
+              )}
+              {onOpenTracker && (
+                <button
+                  type="button"
+                  onClick={onOpenTracker}
+                  className="text-xs text-sky-400 hover:text-sky-300 transition-colors py-1 flex items-center justify-center gap-1.5"
+                >
+                  <Bug className="h-3.5 w-3.5" />
+                  <span>Śledź status zgłoszenia (kod BUG-XXXX) →</span>
+                </button>
+              )}
+            </div>
           </CardContent>
         </Card>
 

@@ -6,7 +6,7 @@ import { seedDatabase } from './db/seed.js';
 
 async function start() {
   const db = getDb();
-  runMigrations(db);
+  await runMigrations(db);
   await seedDatabase(db);
 
   const app = createApp();
@@ -16,8 +16,8 @@ async function start() {
 
   const shutdown = (signal) => {
     console.log(`Received ${signal}, shutting down gracefully...`);
-    server.close(() => {
-      closeDb();
+    server.close(async () => {
+      await closeDb();
       process.exit(0);
     });
   };
@@ -26,8 +26,8 @@ async function start() {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 }
 
-start().catch((err) => {
+start().catch(async (err) => {
   console.error('Failed to start TaskFlow API server:', err);
-  closeDb();
+  await closeDb();
   process.exit(1);
 });

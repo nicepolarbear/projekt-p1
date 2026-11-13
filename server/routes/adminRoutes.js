@@ -80,9 +80,13 @@ router.get(
   '/users',
   requireRoles('admin', 'dyrektor'),
   validateQuery(listUsersQuerySchema),
-  (req, res) => {
-    const { users } = listAdminUsers(req.query);
-    res.json({ users: users.map(sanitizeUser) });
+  async (req, res, next) => {
+    try {
+      const { users } = await listAdminUsers(req.query);
+      res.json({ users: users.map(sanitizeUser) });
+    } catch (err) {
+      next(err);
+    }
   }
 );
 
@@ -120,16 +124,20 @@ router.patch(
   }
 );
 
-router.delete('/users/:id', requireRoles('admin'), (req, res) => {
-  const targetUserId = parseIdParam(req.params.id);
-  const { ipAddress, userAgent } = getClientMeta(req);
-  const user = deactivateAdminUser({
-    actor: req.user,
-    targetUserId,
-    ipAddress,
-    userAgent,
-  });
-  res.json({ ok: true, user: sanitizeUser(user) });
+router.delete('/users/:id', requireRoles('admin'), async (req, res, next) => {
+  try {
+    const targetUserId = parseIdParam(req.params.id);
+    const { ipAddress, userAgent } = getClientMeta(req);
+    const user = await deactivateAdminUser({
+      actor: req.user,
+      targetUserId,
+      ipAddress,
+      userAgent,
+    });
+    res.json({ ok: true, user: sanitizeUser(user) });
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;

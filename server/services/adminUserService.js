@@ -9,28 +9,28 @@ function normalizeIsActive(value) {
   return value === true || value === 1 || value === '1' ? 1 : 0;
 }
 
-function assertForeignKeysExist(db, { roleId, positionId, departmentId }) {
+async function assertForeignKeysExist(db, { roleId, positionId, departmentId }) {
   if (roleId !== undefined) {
-    const role = db.prepare('SELECT id, name FROM roles WHERE id = ?').get(roleId);
+    const role = await db.prepare('SELECT id, name FROM roles WHERE id = ?').get(roleId);
     if (!role) {
       throw new AppError(400, 'VALIDATION_ERROR', 'Wybrana rola nie istnieje');
     }
   }
   if (positionId !== undefined) {
-    const pos = db.prepare('SELECT id FROM positions WHERE id = ?').get(positionId);
+    const pos = await db.prepare('SELECT id FROM positions WHERE id = ?').get(positionId);
     if (!pos) {
       throw new AppError(400, 'VALIDATION_ERROR', 'Wybrane stanowisko nie istnieje');
     }
   }
   if (departmentId !== undefined) {
-    const dept = db.prepare('SELECT id FROM departments WHERE id = ?').get(departmentId);
+    const dept = await db.prepare('SELECT id FROM departments WHERE id = ?').get(departmentId);
     if (!dept) {
       throw new AppError(400, 'VALIDATION_ERROR', 'Wybrany dział nie istnieje');
     }
   }
 }
 
-export function listAdminUsers(filters = {}) {
+export async function listAdminUsers(filters = {}) {
   const db = getDb();
   const conditions = [];
   const params = [];
@@ -60,7 +60,7 @@ export function listAdminUsers(filters = {}) {
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  const rows = db
+  const rows = await db
     .prepare(
       `
       SELECT
@@ -117,14 +117,14 @@ export async function createAdminUser({ actor, payload, ipAddress = null, userAg
   const db = getDb();
   const normalizedEmail = payload.email.trim().toLowerCase();
 
-  const existing = db
+  const existing = await db
     .prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(?)')
     .get(normalizedEmail);
   if (existing) {
     throw new AppError(409, 'EMAIL_EXISTS', 'Użytkownik z tym adresem e-mail już istnieje');
   }
 
-  assertForeignKeysExist(db, {
+  await assertForeignKeysExist(db, {
     roleId: payload.role_id,
     positionId: payload.position_id,
     departmentId: payload.department_id,
@@ -136,8 +136,8 @@ export async function createAdminUser({ actor, payload, ipAddress = null, userAg
   const phone = payload.phone && payload.phone.trim() !== '' ? payload.phone.trim() : null;
   const bio = payload.bio && payload.bio.trim() !== '' ? payload.bio.trim() : null;
 
-  const userId = withTransaction((tx) => {
-    const result = tx
+  const userId = await withTransaction(async (tx) => {
+    const result = await tx
       .prepare(
         `
         INSERT INTO users (
@@ -166,7 +166,7 @@ export async function createAdminUser({ actor, payload, ipAddress = null, userAg
 
     const newId = Number(result.lastInsertRowid);
 
-    logAudit(tx, {
+    await logAudit(tx, {
       actorUserId: actor.id,
       action: 'USER_CREATED',
       entityType: 'user',
@@ -184,7 +184,7 @@ export async function createAdminUser({ actor, payload, ipAddress = null, userAg
     return newId;
   });
 
-  return fetchSanitizedUserById(userId, db);
+  return await fetchSanitizedUserById(userId, db);
 }
 
 export async function updateAdminUser({
@@ -195,7 +195,7 @@ export async function updateAdminUser({
   userAgent = null,
 }) {
   const db = getDb();
-  const target = fetchUserRowById(targetUserId, db);
+  const target = await fetchUserRowById(targetUserId, db);
   if (!target) {
     throw new AppError(404, 'USER_NOT_FOUND', 'Nie znaleziono użytkownika');
   }
@@ -225,7 +225,7 @@ export async function updateAdminUser({
     throw new AppError(403, 'FORBIDDEN', 'Brak uprawnień do modyfikacji użytkownika');
   }
 
-  assertForeignKeysExist(db, {
+  await assertForeignKeysExist(db, {
     roleId: updates.role_id,
     positionId: updates.position_id,
     departmentId: updates.department_id,
@@ -236,7 +236,7 @@ export async function updateAdminUser({
 
   let nextRoleName = target.role_name;
   if (updates.role_id !== undefined && updates.role_id !== target.role_id) {
-    const newRoleRow = db.prepare('SELECT name FROM roles WHERE id = ?').get(updates.role_id);
+    const newRoleRow = await db.prepare('SELECT name FROM roles WHERE id = ?').get(updates.role_id);
     nextRoleName = newRoleRow.name;
   }
 
@@ -254,7 +254,7 @@ export async function updateAdminUser({
     target.is_active === 1 &&
     (nextIsActive === 0 || nextRoleName !== 'admin')
   ) {
-    const activeAdmins = db
+    const activeAdmins = await db
       .prepare(
         `
         SELECT COUNT(*) AS cnt
@@ -277,7 +277,7 @@ export async function updateAdminUser({
   if (updates.email !== undefined) {
     const normalizedEmail = updates.email.trim().toLowerCase();
     if (normalizedEmail !== target.email.toLowerCase()) {
-      const emailOwner = db
+      const emailOwner = await db
         .prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(?) AND id != ?')
         .get(normalizedEmail, target.id);
       if (emailOwner) {
@@ -363,18 +363,18 @@ export async function updateAdminUser({
     setClauses.push('updated_at = ?');
     params.push(now, target.id);
 
-    withTransaction((tx) => {
-      tx.prepare(`UPDATE users SET ${setClauses.join(', ')} WHERE id = ?`).run(...params);
+    await withTransaction(async (tx) => {
+      await tx.prepare(`UPDATE users SET ${setClauses.join(', ')} WHERE id = ?`).run(...params);
 
       if (shouldInvalidateSessions) {
-        tx.prepare('UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL').run(
+        await tx.prepare('UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL').run(
           now,
           target.id
         );
       }
 
       if (roleChanged) {
-        logAudit(tx, {
+        await logAudit(tx, {
           actorUserId: actor.id,
           action: 'ROLE_CHANGED',
           entityType: 'user',
@@ -390,7 +390,7 @@ export async function updateAdminUser({
         });
       }
 
-      logAudit(tx, {
+      await logAudit(tx, {
         actorUserId: actor.id,
         action: 'USER_UPDATED',
         entityType: 'user',
@@ -405,17 +405,17 @@ export async function updateAdminUser({
     });
   }
 
-  return fetchSanitizedUserById(target.id, db);
+  return await fetchSanitizedUserById(target.id, db);
 }
 
-export function deactivateAdminUser({
+export async function deactivateAdminUser({
   actor,
   targetUserId,
   ipAddress = null,
   userAgent = null,
 }) {
   const db = getDb();
-  const target = fetchUserRowById(targetUserId, db);
+  const target = await fetchUserRowById(targetUserId, db);
   if (!target) {
     throw new AppError(404, 'USER_NOT_FOUND', 'Nie znaleziono użytkownika');
   }
@@ -425,7 +425,7 @@ export function deactivateAdminUser({
   }
 
   if (target.role_name === 'admin' && target.is_active === 1) {
-    const activeAdmins = db
+    const activeAdmins = await db
       .prepare(
         `
         SELECT COUNT(*) AS cnt
@@ -447,17 +447,17 @@ export function deactivateAdminUser({
 
   const now = nowIso();
 
-  withTransaction((tx) => {
-    tx.prepare(
+  await withTransaction(async (tx) => {
+    await tx.prepare(
       'UPDATE users SET is_active = 0, token_version = token_version + 1, updated_at = ? WHERE id = ?'
     ).run(now, target.id);
 
-    tx.prepare('UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL').run(
+    await tx.prepare('UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL').run(
       now,
       target.id
     );
 
-    logAudit(tx, {
+    await logAudit(tx, {
       actorUserId: actor.id,
       action: 'USER_DEACTIVATED',
       entityType: 'user',
@@ -468,5 +468,5 @@ export function deactivateAdminUser({
     });
   });
 
-  return fetchSanitizedUserById(target.id, db);
+  return await fetchSanitizedUserById(target.id, db);
 }

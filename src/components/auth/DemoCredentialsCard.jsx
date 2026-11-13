@@ -37,6 +37,12 @@ const DEMO_ACCOUNTS = [
     role: 'pracownik',
     position: 'Junior Developer',
   },
+  {
+    email: 'reporter@portal.pl',
+    name: 'Zofia Tester',
+    role: 'reporter',
+    position: 'Zgłaszający usterki',
+  },
 ]
 
 export function DemoCredentialsCard({

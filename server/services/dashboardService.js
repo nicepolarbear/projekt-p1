@@ -16,11 +16,11 @@ function parseBoolParam(val) {
   return val === true || val === 'true' || val === '1' || val === 1;
 }
 
-export function getDashboardOverview() {
+export async function getDashboardOverview() {
   const db = getDb();
   const now = nowIso();
 
-  const kpiRow = db
+  const kpiRow = await db
     .prepare(
       `
       SELECT
@@ -44,7 +44,7 @@ export function getDashboardOverview() {
     )
     .get(now);
 
-  const assignmentKpis = db
+  const assignmentKpis = await db
     .prepare(
       `
       SELECT
@@ -57,7 +57,7 @@ export function getDashboardOverview() {
     )
     .get();
 
-  const userKpis = db
+  const userKpis = await db
     .prepare(
       `
       SELECT
@@ -91,7 +91,7 @@ export function getDashboardOverview() {
     completion_rate_pct: completionRatePct,
   };
 
-  const status_distribution = db
+  const status_distribution = await db
     .prepare(
       `
       SELECT
@@ -106,7 +106,7 @@ export function getDashboardOverview() {
     )
     .all();
 
-  const priority_distribution = db
+  const priority_distribution = await db
     .prepare(
       `
       SELECT
@@ -124,7 +124,7 @@ export function getDashboardOverview() {
     )
     .all();
 
-  const overdueTaskRows = db
+  const overdueTaskRows = await db
     .prepare(
       `
       SELECT
@@ -133,9 +133,11 @@ export function getDashboardOverview() {
         c.last_name AS creator_last_name,
         c.email AS creator_email,
         c.avatar_color AS creator_avatar_color,
-        c.position_id AS creator_position_id
+        c.position_id AS creator_position_id,
+        cp.priority AS creator_position_priority
       FROM tasks t
       JOIN users c ON c.id = t.creator_id
+      JOIN positions cp ON cp.id = c.position_id
       WHERE t.deleted_at IS NULL
         AND t.due_date IS NOT NULL
         AND t.due_date < ?
@@ -145,9 +147,9 @@ export function getDashboardOverview() {
     )
     .all(now);
 
-  const overdue_tasks = hydrateTaskRows(db, overdueTaskRows).tasks;
+  const overdue_tasks = (await hydrateTaskRows(db, overdueTaskRows)).tasks;
 
-  const employee_workload = db
+  const employee_workload = await db
     .prepare(
       `
       SELECT
@@ -183,13 +185,13 @@ export function getDashboardOverview() {
       LEFT JOIN task_assignments ta ON ta.employee_id = u.id
       LEFT JOIN tasks t ON t.id = ta.task_id AND t.deleted_at IS NULL
       WHERE u.is_active = 1
-      GROUP BY u.id
+      GROUP BY u.id, u.first_name, u.last_name, u.email, u.avatar_color, r.name, p.name, d.name, p.priority
       ORDER BY p.priority ASC, u.last_name ASC, u.first_name ASC
       `
     )
     .all(now);
 
-  const role_stats = db
+  const role_stats = await db
     .prepare(
       `
       SELECT
@@ -206,7 +208,7 @@ export function getDashboardOverview() {
     )
     .all();
 
-  const position_stats = db
+  const position_stats = await db
     .prepare(
       `
       SELECT
@@ -231,7 +233,7 @@ export function getDashboardOverview() {
     )
     .all();
 
-  const recentAuditRows = db
+  const recentAuditRows = await db
     .prepare(
       `
       SELECT
@@ -279,7 +281,7 @@ export function getDashboardOverview() {
   };
 }
 
-export function getDashboardTasks(filters = {}) {
+export async function getDashboardTasks(filters = {}) {
   const db = getDb();
   const conditions = [];
   const params = [];
@@ -293,62 +295,77 @@ export function getDashboardTasks(filters = {}) {
 
   if (filters.search) {
     const pattern = `%${filters.search}%`;
-    conditions.push('(t.title LIKE ? OR t.short_desc LIKE ? OR t.full_desc LIKE ?)');
+    conditions.push('(t.title ILIKE ? OR t.short_desc ILIKE ? OR t.full_desc ILIKE ?)');
     params.push(pattern, pattern, pattern);
   }
 
   if (filters.status_id !== undefined) {
     conditions.push('t.status_id = ?');
-    params.push(filters.status_id);
-  }
-
-  if (filters.creator_id !== undefined) {
-    conditions.push('t.creator_id = ?');
-    params.push(filters.creator_id);
-  }
-
-  if (filters.assignee_id !== undefined) {
-    conditions.push(
-      'EXISTS (SELECT 1 FROM task_assignments ta WHERE ta.task_id = t.id AND ta.employee_id = ?)'
-    );
-    params.push(filters.assignee_id);
+    params.push(Number(filters.status_id));
   }
 
   if (filters.priority_id !== undefined) {
     conditions.push(
-      'EXISTS (SELECT 1 FROM task_assignments ta WHERE ta.task_id = t.id AND ta.priority_id = ?)'
+      'EXISTS (SELECT 1 FROM task_assignments ta_p WHERE ta_p.task_id = t.id AND ta_p.priority_id = ?)'
     );
-    params.push(filters.priority_id);
+    params.push(Number(filters.priority_id));
   }
 
-  if (parseBoolParam(filters.overdue_only)) {
-    conditions.push('t.due_date IS NOT NULL AND t.due_date < ? AND t.status_id NOT IN (3, 4)');
-    params.push(nowIso());
+  if (filters.creator_id !== undefined) {
+    conditions.push('t.creator_id = ?');
+    params.push(Number(filters.creator_id));
+  }
+
+  if (filters.employee_id !== undefined) {
+    conditions.push(
+      'EXISTS (SELECT 1 FROM task_assignments ta_e WHERE ta_e.task_id = t.id AND ta_e.employee_id = ?)'
+    );
+    params.push(Number(filters.employee_id));
+  }
+
+  if (filters.department_id !== undefined) {
+    conditions.push(
+      '(c.department_id = ? OR EXISTS (SELECT 1 FROM task_assignments ta_d JOIN users ud ON ud.id = ta_d.employee_id WHERE ta_d.task_id = t.id AND ud.department_id = ?))'
+    );
+    params.push(Number(filters.department_id), Number(filters.department_id));
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  const rows = db
+
+  const rows = await db
     .prepare(
       `
       SELECT
-        t.*,
+        t.id,
+        t.title,
+        t.short_desc,
+        t.full_desc,
+        t.creator_id,
+        t.status_id,
+        t.due_date,
+        t.completed_at,
+        t.deleted_at,
+        t.created_at,
+        t.updated_at,
         c.first_name AS creator_first_name,
         c.last_name AS creator_last_name,
         c.email AS creator_email,
         c.avatar_color AS creator_avatar_color,
-        c.position_id AS creator_position_id
+        c.position_id AS creator_position_id,
+        cp.priority AS creator_position_priority
       FROM tasks t
       JOIN users c ON c.id = t.creator_id
+      JOIN positions cp ON cp.id = c.position_id
       ${whereClause}
       ORDER BY t.created_at DESC, t.id DESC
       `
     )
     .all(...params);
 
-  return hydrateTaskRows(db, rows);
+  return await hydrateTaskRows(db, rows);
 }
 
-export function getAuditLogs({ action, actor_id, entity_type, page = 1, limit = 25 }) {
+export async function getAuditLogs({ action, actor_id, entity_type, page = 1, limit = 25 }) {
   const db = getDb();
   const conditions = [];
   const params = [];
@@ -367,12 +384,12 @@ export function getAuditLogs({ action, actor_id, entity_type, page = 1, limit = 
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  const countRow = db
+  const countRow = await db
     .prepare(`SELECT COUNT(*) AS total FROM audit_logs a ${whereClause}`)
     .get(...params);
 
   const offset = (page - 1) * limit;
-  const rows = db
+  const rows = await db
     .prepare(
       `
       SELECT

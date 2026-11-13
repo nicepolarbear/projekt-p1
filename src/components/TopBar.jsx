@@ -1,4 +1,4 @@
-import { BarChart3, ChevronDown, LayoutGrid, LogOut, Settings, User } from 'lucide-react'
+import { BarChart3, Bug, ChevronDown, LayoutGrid, LogOut, Settings, User } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { canAccessDashboard } from '../lib/permissions'
 import { cn } from '../lib/utils'
@@ -17,7 +17,7 @@ import {
 /**
  * TopBar - górny pasek nawigacyjny aplikacji.
  */
-export function TopBar({ activeView, onChangeView }) {
+export function TopBar({ activeView, onChangeView, onOpenBugReport }) {
   const { user: currentUser, logout } = useAuth()
   const showDashboardNav = canAccessDashboard(currentUser)
   const fullName = [currentUser?.first_name, currentUser?.last_name].filter(Boolean).join(' ')
@@ -74,7 +74,20 @@ export function TopBar({ activeView, onChangeView }) {
       </div>
 
       {/* Prawa strona: Nowe zadanie + Menu użytkownika */}
-      <div className="flex items-center gap-2.5 shrink-0">
+      <div className="flex items-center gap-2 shrink-0">
+        {onOpenBugReport && (
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={onOpenBugReport}
+            className="h-9 px-2.5 gap-1.5 rounded-lg text-xs text-zinc-300 hover:text-emerald-400 hover:bg-zinc-800/80 border border-zinc-800"
+            title="Zgłoś błąd w aplikacji"
+          >
+            <Bug className="h-3.5 w-3.5 text-emerald-400" />
+            <span className="hidden sm:inline">Zgłoś błąd</span>
+          </Button>
+        )}
+
         {(activeView === 'workspace' || activeView === 'dashboard') && <AddTaskDialog />}
 
         <DropdownMenu>
@@ -143,6 +156,16 @@ export function TopBar({ activeView, onChangeView }) {
               >
                 <BarChart3 className="h-4 w-4 text-zinc-400" />
                 <span>Dashboard zarządczy</span>
+              </DropdownMenuItem>
+            )}
+
+            {onOpenBugReport && (
+              <DropdownMenuItem
+                onSelect={onOpenBugReport}
+                className="cursor-pointer gap-2"
+              >
+                <Bug className="h-4 w-4 text-emerald-400" />
+                <span>Zgłoś błąd / problem</span>
               </DropdownMenuItem>
             )}
 

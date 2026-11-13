@@ -4,8 +4,8 @@ import { getMeta } from '../services/metaService.js';
 
 const router = Router();
 
-router.get('/', requireAuth, (_req, res) => {
-  res.json(getMeta());
+router.get('/', requireAuth, async (_req, res) => {
+  res.json(await getMeta());
 });
 
 export default router;

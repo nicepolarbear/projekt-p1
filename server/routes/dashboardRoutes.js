@@ -34,16 +34,31 @@ const auditLogsQuerySchema = z
   })
   .strict();
 
-router.get('/overview', (_req, res) => {
-  res.json(getDashboardOverview());
+router.get('/overview', async (_req, res, next) => {
+  try {
+    const overview = await getDashboardOverview();
+    res.json(overview);
+  } catch (err) {
+    next(err);
+  }
 });
 
-router.get('/tasks', validateQuery(dashboardTasksQuerySchema), (req, res) => {
-  res.json(getDashboardTasks(req.query));
+router.get('/tasks', validateQuery(dashboardTasksQuerySchema), async (req, res, next) => {
+  try {
+    const tasks = await getDashboardTasks(req.query);
+    res.json(tasks);
+  } catch (err) {
+    next(err);
+  }
 });
 
-router.get('/audit-logs', validateQuery(auditLogsQuerySchema), (req, res) => {
-  res.json(getAuditLogs(req.query));
+router.get('/audit-logs', validateQuery(auditLogsQuerySchema), async (req, res, next) => {
+  try {
+    const logs = await getAuditLogs(req.query);
+    res.json(logs);
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;

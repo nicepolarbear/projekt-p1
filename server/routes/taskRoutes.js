@@ -86,17 +86,17 @@ const respondAssignmentSchema = z
   })
   .strict();
 
-router.get('/', validateQuery(listTasksQuerySchema), (req, res) => {
-  const result = listTasks({
+router.get('/', validateQuery(listTasksQuerySchema), async (req, res) => {
+  const result = await listTasks({
     actor: req.user,
     scope: req.query.scope,
   });
   res.json(result);
 });
 
-router.post('/', validateBody(createTaskSchema), (req, res) => {
+router.post('/', validateBody(createTaskSchema), async (req, res) => {
   const { ipAddress, userAgent } = getClientMeta(req);
-  const result = createTask({
+  const result = await createTask({
     actor: req.user,
     payload: req.body,
     ipAddress,
@@ -105,10 +105,10 @@ router.post('/', validateBody(createTaskSchema), (req, res) => {
   res.status(201).json(result);
 });
 
-router.patch('/:id', validateBody(updateTaskSchema), (req, res) => {
+router.patch('/:id', validateBody(updateTaskSchema), async (req, res) => {
   const taskId = parseIdParam(req.params.id);
   const { ipAddress, userAgent } = getClientMeta(req);
-  const result = updateTask({
+  const result = await updateTask({
     actor: req.user,
     taskId,
     updates: req.body,
@@ -118,10 +118,10 @@ router.patch('/:id', validateBody(updateTaskSchema), (req, res) => {
   res.json(result);
 });
 
-router.patch('/:id/status', validateBody(updateStatusSchema), (req, res) => {
+router.patch('/:id/status', validateBody(updateStatusSchema), async (req, res) => {
   const taskId = parseIdParam(req.params.id);
   const { ipAddress, userAgent } = getClientMeta(req);
-  const result = updateTaskStatus({
+  const result = await updateTaskStatus({
     actor: req.user,
     taskId,
     statusId: req.body.status_id,
@@ -131,10 +131,10 @@ router.patch('/:id/status', validateBody(updateStatusSchema), (req, res) => {
   res.json(result);
 });
 
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   const taskId = parseIdParam(req.params.id);
   const { ipAddress, userAgent } = getClientMeta(req);
-  const result = softDeleteTask({
+  const result = await softDeleteTask({
     actor: req.user,
     taskId,
     ipAddress,
@@ -143,10 +143,10 @@ router.delete('/:id', (req, res) => {
   res.json({ ok: true, ...result });
 });
 
-router.post('/:id/restore', (req, res) => {
+router.post('/:id/restore', async (req, res) => {
   const taskId = parseIdParam(req.params.id);
   const { ipAddress, userAgent } = getClientMeta(req);
-  const result = restoreTask({
+  const result = await restoreTask({
     actor: req.user,
     taskId,
     ipAddress,
@@ -155,10 +155,10 @@ router.post('/:id/restore', (req, res) => {
   res.json(result);
 });
 
-router.post('/:id/assignments', validateBody(assignTaskSchema), (req, res) => {
+router.post('/:id/assignments', validateBody(assignTaskSchema), async (req, res) => {
   const taskId = parseIdParam(req.params.id);
   const { ipAddress, userAgent } = getClientMeta(req);
-  const assignment = assignTask({
+  const assignment = await assignTask({
     actor: req.user,
     taskId,
     employeeId: req.body.employee_id,
@@ -170,10 +170,10 @@ router.post('/:id/assignments', validateBody(assignTaskSchema), (req, res) => {
   res.status(201).json({ assignment });
 });
 
-function handleRespondToAssignment(req, res) {
+async function handleRespondToAssignment(req, res) {
   const taskId = parseIdParam(req.params.id);
   const { ipAddress, userAgent } = getClientMeta(req);
-  const assignment = respondToAssignment({
+  const assignment = await respondToAssignment({
     actor: req.user,
     taskId,
     assignmentStatus: req.body.assignment_status,

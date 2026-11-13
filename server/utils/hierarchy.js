@@ -1,9 +1,15 @@
 export function canDelegate(fromPosition, toPosition) {
+  const isDelegatable =
+    toPosition &&
+    (toPosition.is_delegatable === 1 ||
+      toPosition.is_delegatable === true ||
+      toPosition.is_delegatable === '1');
+
   return Boolean(
     fromPosition &&
       toPosition &&
-      toPosition.is_delegatable === 1 &&
-      fromPosition.priority < toPosition.priority
+      isDelegatable &&
+      Number(fromPosition.priority) < Number(toPosition.priority)
   );
 }
 
@@ -11,6 +17,6 @@ export function canShare(fromPosition, toPosition) {
   return Boolean(
     fromPosition &&
       toPosition &&
-      fromPosition.priority === toPosition.priority
+      Number(fromPosition.priority) === Number(toPosition.priority)
   );
 }

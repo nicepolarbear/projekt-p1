@@ -56,9 +56,9 @@ router.post('/login', loginRateLimiter, validateBody(loginSchema), async (req, r
   res.json({ user: sanitizeUser(user) });
 });
 
-router.post('/logout', (req, res) => {
+router.post('/logout', async (req, res) => {
   const { ipAddress, userAgent } = getClientMeta(req);
-  logout({
+  await logout({
     cookieToken: extractCookieToken(req),
     reqCookies: req.cookies,
     ipAddress,

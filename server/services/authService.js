@@ -23,11 +23,11 @@ export const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 export async function login({ email, password, ipAddress = null, userAgent = null }) {
   const normalizedEmail = email.trim().toLowerCase();
   const db = getDb();
-  const row = fetchUserRowByEmail(normalizedEmail, db);
+  const row = await fetchUserRowByEmail(normalizedEmail, db);
 
   if (!row) {
     await dummyVerify();
-    logAudit(db, {
+    await logAudit(db, {
       actorUserId: null,
       action: 'LOGIN_FAILED',
       entityType: 'auth',
@@ -41,7 +41,7 @@ export async function login({ email, password, ipAddress = null, userAgent = nul
 
   const passwordValid = await verifyPassword(password, row.password_hash);
   if (!passwordValid) {
-    logAudit(db, {
+    await logAudit(db, {
       actorUserId: row.id,
       action: 'LOGIN_FAILED',
       entityType: 'auth',
@@ -54,7 +54,7 @@ export async function login({ email, password, ipAddress = null, userAgent = nul
   }
 
   if (row.is_active !== 1) {
-    logAudit(db, {
+    await logAudit(db, {
       actorUserId: row.id,
       action: 'LOGIN_FAILED',
       entityType: 'auth',
@@ -72,8 +72,8 @@ export async function login({ email, password, ipAddress = null, userAgent = nul
   const now = nowIso();
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString().replace(/\.\d{3}Z$/, 'Z');
 
-  withTransaction((tx) => {
-    tx.prepare(
+  await withTransaction(async (tx) => {
+    await tx.prepare(
       `
       INSERT INTO sessions (
         id, user_id, token_hash, ip_address, user_agent, created_at, expires_at, last_seen_at
@@ -81,13 +81,13 @@ export async function login({ email, password, ipAddress = null, userAgent = nul
       `
     ).run(sessionId, row.id, tokenHash, ipAddress, userAgent, now, expiresAt, now);
 
-    tx.prepare('UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?').run(
+    await tx.prepare('UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?').run(
       now,
       now,
       row.id
     );
 
-    logAudit(tx, {
+    await logAudit(tx, {
       actorUserId: row.id,
       action: 'LOGIN_SUCCESS',
       entityType: 'session',
@@ -104,11 +104,11 @@ export async function login({ email, password, ipAddress = null, userAgent = nul
     tv: row.token_version,
   });
 
-  const freshUser = fetchSanitizedUserById(row.id, db) || mapUserRow(row);
+  const freshUser = (await fetchSanitizedUserById(row.id, db)) || mapUserRow(row);
   return { user: freshUser, signedToken, ttlMs: SESSION_TTL_MS };
 }
 
-export function logout({ cookieToken, reqCookies, ipAddress = null, userAgent = null }) {
+export async function logout({ cookieToken, reqCookies, ipAddress = null, userAgent = null }) {
   const token = reqCookies?.[COOKIE_NAME] || cookieToken || null;
   if (!token) {
     return;
@@ -121,15 +121,15 @@ export function logout({ cookieToken, reqCookies, ipAddress = null, userAgent = 
 
   const now = nowIso();
 
-  withTransaction((tx) => {
-    const result = tx
+  await withTransaction(async (tx) => {
+    const result = await tx
       .prepare(
         'UPDATE sessions SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL'
       )
       .run(now, payload.sid, payload.uid);
 
     if (result.changes > 0) {
-      logAudit(tx, {
+      await logAudit(tx, {
         actorUserId: payload.uid,
         action: 'LOGOUT',
         entityType: 'session',
@@ -159,7 +159,7 @@ export async function changePassword({
   }
 
   const db = getDb();
-  const row = fetchUserRowById(userId, db);
+  const row = await fetchUserRowById(userId, db);
   if (!row || row.is_active !== 1) {
     throw new AppError(401, 'UNAUTHORIZED', 'Nie znaleziono aktywnego użytkownika');
   }
@@ -172,18 +172,18 @@ export async function changePassword({
   const newHash = await hashPassword(newPassword);
   const now = nowIso();
 
-  const newTokenVersion = withTransaction((tx) => {
-    tx.prepare(
+  const newTokenVersion = await withTransaction(async (tx) => {
+    await tx.prepare(
       'UPDATE users SET password_hash = ?, token_version = token_version + 1, updated_at = ? WHERE id = ?'
     ).run(newHash, now, userId);
 
-    tx.prepare(
+    await tx.prepare(
       'UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND id != ? AND revoked_at IS NULL'
     ).run(now, userId, sessionId);
 
-    const updated = tx.prepare('SELECT token_version FROM users WHERE id = ?').get(userId);
+    const updated = await tx.prepare('SELECT token_version FROM users WHERE id = ?').get(userId);
 
-    logAudit(tx, {
+    await logAudit(tx, {
       actorUserId: userId,
       action: 'PASSWORD_CHANGED',
       entityType: 'user',
@@ -200,6 +200,45 @@ export async function changePassword({
     sid: sessionId,
     uid: userId,
     tv: newTokenVersion,
+  });
+
+  return { signedToken, ttlMs: SESSION_TTL_MS };
+}
+
+export async function createSessionForUserId(
+  userId,
+  { ipAddress = null, userAgent = null } = {},
+  db = getDb()
+) {
+  const sessionId = crypto.randomUUID();
+  const rawToken = crypto.randomBytes(32).toString('base64url');
+  const tokenHash = sha256Hex(rawToken);
+  const now = nowIso();
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString().replace(/\.\d{3}Z$/, 'Z');
+
+  const row = await db.prepare('SELECT id, token_version FROM users WHERE id = ?').get(userId);
+  if (!row) {
+    throw new AppError(404, 'NOT_FOUND', 'Nie znaleziono użytkownika');
+  }
+
+  await db.prepare(
+    `
+    INSERT INTO sessions (
+      id, user_id, token_hash, ip_address, user_agent, created_at, expires_at, last_seen_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `
+  ).run(sessionId, userId, tokenHash, ipAddress, userAgent, now, expiresAt, now);
+
+  await db.prepare('UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?').run(
+    now,
+    now,
+    userId
+  );
+
+  const signedToken = signToken({
+    sid: sessionId,
+    uid: userId,
+    tv: row.token_version,
   });
 
   return { signedToken, ttlMs: SESSION_TTL_MS };
