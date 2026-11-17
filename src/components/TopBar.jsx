@@ -1,8 +1,10 @@
 import { BarChart3, Bug, ChevronDown, LayoutGrid, LogOut, Settings, User } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
+import { useLiveEvents } from '../context/LiveEventsContext'
 import { canAccessDashboard } from '../lib/permissions'
 import { cn } from '../lib/utils'
 import { AddTaskDialog } from './AddTaskDialog'
+import { NotificationCenter } from './notifications/NotificationCenter'
 import { Avatar } from './shared/Avatar'
 import { RoleBadge } from './shared/RoleBadge'
 import { Button } from './ui/button'
@@ -14,11 +16,57 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu'
 
+function LiveStatusBadge({ connectionStatus, onRefresh }) {
+  let indicator
+  let label
+  let textColor
+
+  if (connectionStatus === 'connected') {
+    indicator = (
+      <span className="relative flex h-2 w-2 shrink-0">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+      </span>
+    )
+    label = 'Na żywo'
+    textColor = 'text-emerald-400'
+  } else if (connectionStatus === 'connecting') {
+    indicator = (
+      <span className="relative flex h-2 w-2 shrink-0">
+        <span className="inline-flex rounded-full h-2 w-2 bg-amber-400 animate-pulse" />
+      </span>
+    )
+    label = 'Łączenie...'
+    textColor = 'text-amber-400'
+  } else {
+    indicator = (
+      <span className="relative flex h-2 w-2 shrink-0">
+        <span className="inline-flex rounded-full h-2 w-2 bg-red-500" />
+      </span>
+    )
+    label = 'Offline'
+    textColor = 'text-red-400'
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onRefresh}
+      className="hidden sm:inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs bg-zinc-950/70 border border-zinc-800 hover:border-zinc-700 transition-colors cursor-pointer select-none"
+      title="Status synchronizacji w czasie rzeczywistym. Kliknij, aby odświeżyć natychmiast."
+    >
+      {indicator}
+      <span className={cn('text-[11px] font-medium', textColor)}>{label}</span>
+    </button>
+  )
+}
+
 /**
  * TopBar - górny pasek nawigacyjny aplikacji.
  */
 export function TopBar({ activeView, onChangeView, onOpenBugReport }) {
   const { user: currentUser, logout } = useAuth()
+  const { connectionStatus, refreshNow } = useLiveEvents()
   const showDashboardNav = canAccessDashboard(currentUser)
   const fullName = [currentUser?.first_name, currentUser?.last_name].filter(Boolean).join(' ')
 
@@ -73,8 +121,12 @@ export function TopBar({ activeView, onChangeView, onOpenBugReport }) {
         </nav>
       </div>
 
-      {/* Prawa strona: Nowe zadanie + Menu użytkownika */}
+      {/* Prawa strona: Wskaźnik na żywo + Powiadomienia + Nowe zadanie + Menu użytkownika */}
       <div className="flex items-center gap-2 shrink-0">
+        <LiveStatusBadge connectionStatus={connectionStatus} onRefresh={refreshNow} />
+
+        <NotificationCenter />
+
         {onOpenBugReport && (
           <Button
             type="button"

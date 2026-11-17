@@ -34,6 +34,8 @@ export function MainLayout() {
     restoreTask,
     deleteTask,
     updateTaskStatus,
+    focusedTaskId,
+    clearFocusedTask,
   } = useAppContext()
 
   const { toast } = useToast()
@@ -83,6 +85,41 @@ export function MainLayout() {
   const canChangeStatusDragged = draggedTask
     ? canChangeTaskStatus(currentUser, draggedTask, assignments)
     : false
+
+  // Reagowanie na otwarcie / fokus zadania z powiadomienia na żywo lub Centrum Powiadomień
+  useEffect(() => {
+    if (!focusedTaskId) return
+    const id = Number(focusedTaskId) || focusedTaskId
+
+    const inProgress = inProgressTasks.some((t) => t.id === id)
+    if (inProgress) {
+      bringToFront(id)
+    } else {
+      const isTodo = todoTasks.some((t) => t.id === id)
+      if (isTodo) {
+        setLeftPanelOpen(true)
+      } else {
+        const isDone = doneTasks.some((t) => t.id === id)
+        if (isDone) {
+          setRightPanel('done')
+        } else {
+          const isDeleted = myDeletedTasks.some((t) => t.id === id)
+          if (isDeleted) {
+            setRightPanel('trash')
+          }
+        }
+      }
+    }
+    clearFocusedTask()
+  }, [
+    focusedTaskId,
+    inProgressTasks,
+    todoTasks,
+    doneTasks,
+    myDeletedTasks,
+    bringToFront,
+    clearFocusedTask,
+  ])
 
   // Obliczanie początkowej pozycji okna na pulpicie
   const getInitialPosition = useCallback(

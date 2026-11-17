@@ -6,6 +6,7 @@ async function resetDatabase() {
   const db = getDb();
   try {
     await db.exec(`
+      DROP TABLE IF EXISTS live_events CASCADE;
       DROP TABLE IF EXISTS bug_task_links CASCADE;
       DROP TABLE IF EXISTS bug_comments CASCADE;
       DROP TABLE IF EXISTS bug_reports CASCADE;

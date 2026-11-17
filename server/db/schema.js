@@ -348,3 +348,26 @@ export const auditLogs = pgTable(
     index('idx_audit_logs_entity').on(table.entity_type, table.entity_id),
   ]
 );
+
+export const liveEvents = pgTable(
+  'live_events',
+  {
+    id: serial('id').primaryKey(),
+    organization_id: integer('organization_id').references(() => organizations.id, { onDelete: 'cascade' }),
+    event_type: varchar('event_type', { length: 50 }).notNull(),
+    entity_type: varchar('entity_type', { length: 50 }).notNull().default('task'),
+    entity_id: integer('entity_id').notNull(),
+    actor_id: integer('actor_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    actor_name: varchar('actor_name', { length: 150 }).notNull(),
+    target_user_ids_json: text('target_user_ids_json'),
+    title: varchar('title', { length: 255 }).notNull(),
+    description: text('description'),
+    payload_json: text('payload_json').notNull().default('{}'),
+    created_at: varchar('created_at', { length: 50 }).notNull(),
+  },
+  (table) => [
+    index('idx_live_events_org_id').on(table.organization_id, table.id),
+    index('idx_live_events_entity').on(table.entity_type, table.entity_id),
+  ]
+);
+

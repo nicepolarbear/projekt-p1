@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
+import { useLiveEvents } from '../context/LiveEventsContext'
 import { priorityVariantMap, statusVariantMap } from '../lib/constants'
 import { canChangeTaskStatus, canDeleteTask } from '../lib/permissions'
 import { ShareOrDelegateDialog } from './ShareOrDelegateDialog'
@@ -42,7 +43,11 @@ export function DraggableTaskWindow({
     deleteTask,
     getAssignees,
     assignments,
+    refreshTasks,
   } = useAppContext()
+
+  const { conflicts, clearConflict } = useLiveEvents()
+  const conflict = conflicts[task.id]
 
   const windowRef = useRef(null)
   const posRef = useRef(position)
@@ -180,6 +185,11 @@ export function DraggableTaskWindow({
     setRejectReason('')
   }
 
+  const handleResolveConflict = useCallback(() => {
+    void refreshTasks({ silent: true })
+    clearConflict(task.id)
+  }, [refreshTasks, clearConflict, task.id])
+
   return (
     <>
       <div
@@ -290,6 +300,28 @@ export function DraggableTaskWindow({
             )
           )}
         </div>
+
+        {/* Baner ostrzegawczy o konflikcie / aktualizacji przez innego użytkownika */}
+        {conflict && (
+          <div className="bg-amber-500/15 border-b border-amber-500/30 px-3 py-2 text-xs flex items-center justify-between gap-2 text-amber-200 animate-in fade-in duration-200">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+              <span className="truncate text-[11px]">
+                To zadanie zostało właśnie zaktualizowane przez innego użytkownika
+                {conflict.actorName ? ` (${conflict.actorName})` : ''}.
+              </span>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-6 px-2 text-[10px] border-amber-500/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20 shrink-0"
+              onClick={handleResolveConflict}
+            >
+              Odśwież dane
+            </Button>
+          </div>
+        )}
 
         {/* BODY */}
         {!minimized && (

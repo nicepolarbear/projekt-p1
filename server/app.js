@@ -15,6 +15,7 @@ import organizationRoutes from './routes/organizationRoutes.js';
 import positionsRoutes from './routes/positionsRoutes.js';
 import profileRoutes from './routes/profileRoutes.js';
 import taskRoutes from './routes/taskRoutes.js';
+import eventsRoutes from './routes/eventsRoutes.js';
 
 export function createApp() {
   const app = express();
@@ -51,6 +52,7 @@ export function createApp() {
   app.use('/api/bugs', bugRouter);
   app.use('/api/organization/bugs', orgBugRouter);
   app.use('/api/organizations/bugs', orgBugRouter);
+  app.use('/api/events', eventsRoutes);
 
   app.use('/api', (_req, _res, next) => {
     next(new AppError(404, 'NOT_FOUND', 'Nie znaleziono zasobu API'));
