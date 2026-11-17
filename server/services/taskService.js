@@ -2,6 +2,7 @@ import { getDb, withTransaction } from '../db/connection.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { canDelegate, canShare } from '../utils/hierarchy.js';
 import { logAudit, nowIso } from './auditService.js';
+import { recordLiveEvent } from './eventsService.js';
 import { fetchUserRowById } from './userMapper.js';
 
 const BASE_TASK_SELECT = `
@@ -460,6 +461,29 @@ export async function createTask({ actor, payload, ipAddress = null, userAgent =
       });
     }
 
+    const targetUserIds = Array.from(
+      new Set([actor.id, ...createdAssignments.map((a) => a.employee_id)])
+    );
+
+    const actorFullName = `${actor.first_name || ''} ${actor.last_name || ''}`.trim() || 'Użytkownik';
+    await recordLiveEvent(tx, {
+      organizationId: actor.organization_id || null,
+      eventType: 'TASK_CREATED',
+      entityType: 'task',
+      entityId: taskId,
+      actorId: actor.id,
+      actorName: actorFullName,
+      targetUserIds,
+      title: 'Nowe zadanie',
+      description: `${actorFullName} utworzył(a) zadanie: "${title.trim()}"`,
+      payload: {
+        taskId,
+        taskTitle: title.trim(),
+        assignmentMode: assignment_mode,
+        assigneeId: targetUser?.id || null,
+      },
+    });
+
     return taskId;
   });
 
@@ -522,6 +546,31 @@ export async function updateTask({ actor, taskId, updates, ipAddress = null, use
         details: { updated_fields: changedFields },
         ipAddress,
         userAgent,
+      });
+
+      const assignees = await tx
+        .prepare('SELECT employee_id FROM task_assignments WHERE task_id = ?')
+        .all(taskId);
+      const targetUserIds = Array.from(
+        new Set([existing.creator_id, ...assignees.map((a) => a.employee_id)])
+      );
+
+      const actorFullName = `${actor.first_name || ''} ${actor.last_name || ''}`.trim() || 'Użytkownik';
+      const effectiveTitle = updates.title ? updates.title.trim() : existing.title;
+      await recordLiveEvent(tx, {
+        organizationId: actor.organization_id || null,
+        eventType: 'TASK_UPDATED',
+        entityType: 'task',
+        entityId: taskId,
+        actorId: actor.id,
+        actorName: actorFullName,
+        targetUserIds,
+        title: 'Zaktualizowano zadanie',
+        description: `${actorFullName} zaktualizował(a) zadanie: "${effectiveTitle}"`,
+        payload: {
+          taskId,
+          taskTitle: effectiveTitle,
+        },
       });
     });
   }
@@ -608,6 +657,40 @@ export async function updateTaskStatus({ actor, taskId, statusId, ipAddress = nu
       ipAddress,
       userAgent,
     });
+
+    const assignees = await tx
+      .prepare('SELECT employee_id FROM task_assignments WHERE task_id = ?')
+      .all(taskId);
+    const targetUserIds = Array.from(
+      new Set([existing.creator_id, ...assignees.map((a) => a.employee_id)])
+    );
+
+    const STATUS_MAP = {
+      1: 'Do zrobienia',
+      2: 'W trakcie',
+      3: 'Zrobione',
+      4: 'Anulowane',
+    };
+    const statusLabel = STATUS_MAP[statusId] || `Status #${statusId}`;
+
+    const actorFullName = `${actor.first_name || ''} ${actor.last_name || ''}`.trim() || 'Użytkownik';
+    await recordLiveEvent(tx, {
+      organizationId: actor.organization_id || null,
+      eventType: 'TASK_STATUS_CHANGED',
+      entityType: 'task',
+      entityId: taskId,
+      actorId: actor.id,
+      actorName: actorFullName,
+      targetUserIds,
+      title: 'Zmiana statusu zadania',
+      description: `${actorFullName} zmienił(a) status "${existing.title}" na: ${statusLabel}`,
+      payload: {
+        taskId,
+        taskTitle: existing.title,
+        statusId,
+        statusLabel,
+      },
+    });
   });
 
   return await fetchHydratedTaskById(db, taskId);
@@ -647,6 +730,30 @@ export async function softDeleteTask({ actor, taskId, ipAddress = null, userAgen
       ipAddress,
       userAgent,
     });
+
+    const assignees = await tx
+      .prepare('SELECT employee_id FROM task_assignments WHERE task_id = ?')
+      .all(taskId);
+    const targetUserIds = Array.from(
+      new Set([existing.creator_id, ...assignees.map((a) => a.employee_id)])
+    );
+
+    const actorFullName = `${actor.first_name || ''} ${actor.last_name || ''}`.trim() || 'Użytkownik';
+    await recordLiveEvent(tx, {
+      organizationId: actor.organization_id || null,
+      eventType: 'TASK_DELETED',
+      entityType: 'task',
+      entityId: taskId,
+      actorId: actor.id,
+      actorName: actorFullName,
+      targetUserIds,
+      title: 'Zadanie w koszu',
+      description: `${actorFullName} przeniósł(a) zadanie "${existing.title}" do kosza`,
+      payload: {
+        taskId,
+        taskTitle: existing.title,
+      },
+    });
   });
 
   return await fetchHydratedTaskById(db, taskId);
@@ -681,6 +788,30 @@ export async function restoreTask({ actor, taskId, ipAddress = null, userAgent =
       details: { title: existing.title },
       ipAddress,
       userAgent,
+    });
+
+    const assignees = await tx
+      .prepare('SELECT employee_id FROM task_assignments WHERE task_id = ?')
+      .all(taskId);
+    const targetUserIds = Array.from(
+      new Set([existing.creator_id, ...assignees.map((a) => a.employee_id)])
+    );
+
+    const actorFullName = `${actor.first_name || ''} ${actor.last_name || ''}`.trim() || 'Użytkownik';
+    await recordLiveEvent(tx, {
+      organizationId: actor.organization_id || null,
+      eventType: 'TASK_RESTORED',
+      entityType: 'task',
+      entityId: taskId,
+      actorId: actor.id,
+      actorName: actorFullName,
+      targetUserIds,
+      title: 'Zadanie przywrócone',
+      description: `${actorFullName} przywrócił(a) zadanie "${existing.title}"`,
+      payload: {
+        taskId,
+        taskTitle: existing.title,
+      },
     });
   });
 
@@ -813,6 +944,32 @@ export async function assignTask({
       ipAddress,
       userAgent,
     });
+
+    const existingAssignees = await tx
+      .prepare('SELECT employee_id FROM task_assignments WHERE task_id = ?')
+      .all(taskId);
+    const targetUserIds = Array.from(
+      new Set([existingTask.creator_id, employeeId, ...existingAssignees.map((a) => a.employee_id)])
+    );
+
+    const actorFullName = `${actor.first_name || ''} ${actor.last_name || ''}`.trim() || 'Użytkownik';
+    await recordLiveEvent(tx, {
+      organizationId: actor.organization_id || null,
+      eventType: 'TASK_ASSIGNED',
+      entityType: 'task',
+      entityId: taskId,
+      actorId: actor.id,
+      actorName: actorFullName,
+      targetUserIds,
+      title: resolvedMode === 'assign' ? 'Nowe zlecone zadanie' : 'Udostępniono zadanie',
+      description: `${actorFullName} przypisał(a) zadanie "${existingTask.title}" do: ${targetRow.first_name} ${targetRow.last_name}`,
+      payload: {
+        taskId,
+        taskTitle: existingTask.title,
+        employeeId,
+        mode: resolvedMode,
+      },
+    });
   });
 
   return await fetchAssignmentByCompositeKey(db, taskId, employeeId);
@@ -877,6 +1034,33 @@ export async function respondToAssignment({
       },
       ipAddress,
       userAgent,
+    });
+
+    const assignees = await tx
+      .prepare('SELECT employee_id FROM task_assignments WHERE task_id = ?')
+      .all(taskId);
+    const targetUserIds = Array.from(
+      new Set([existingTask.creator_id, ...assignees.map((a) => a.employee_id)])
+    );
+
+    const isAccepted = assignmentStatus === 'accepted';
+    const actorFullName = `${actor.first_name || ''} ${actor.last_name || ''}`.trim() || 'Użytkownik';
+    await recordLiveEvent(tx, {
+      organizationId: actor.organization_id || null,
+      eventType: isAccepted ? 'ASSIGNMENT_ACCEPTED' : 'ASSIGNMENT_REJECTED',
+      entityType: 'task',
+      entityId: taskId,
+      actorId: actor.id,
+      actorName: actorFullName,
+      targetUserIds,
+      title: isAccepted ? 'Zadanie zaakceptowane' : 'Zadanie odrzucone',
+      description: `${actorFullName} ${isAccepted ? 'zaakceptował(a)' : 'odrzucił(a)'} przypisanie do zadania "${existingTask.title}"`,
+      payload: {
+        taskId,
+        taskTitle: existingTask.title,
+        assignmentStatus,
+        rejectionReason: normalizedReason,
+      },
     });
   });
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft } from 'lucide-react'
+import { useAppContext } from '../context/AppContext'
 import { useAuth } from '../hooks/useAuth'
 import { useDesktopLayout } from '../hooks/useDesktopLayout'
 import { canAccessDashboard } from '../lib/permissions'
@@ -21,6 +22,7 @@ import { Button } from './ui/button'
  */
 export function AppShell() {
   const { authStatus, user } = useAuth()
+  const { focusedTaskId } = useAppContext()
   const [activeView, setActiveView] = useState('workspace')
   const [isPublicTracker, setIsPublicTracker] = useState(() => {
     if (typeof window === 'undefined') return false
@@ -69,6 +71,12 @@ export function AppShell() {
     prevAuthStatusRef.current = authStatus
     prevHadDashboardAccessRef.current = hasDashboardAccess
   }, [authStatus, hasDashboardAccess, activeView])
+
+  useEffect(() => {
+    if (focusedTaskId && activeView !== 'workspace') {
+      setActiveView('workspace')
+    }
+  }, [focusedTaskId, activeView])
 
   if (authStatus === 'booting') {
     return <BootSplash />

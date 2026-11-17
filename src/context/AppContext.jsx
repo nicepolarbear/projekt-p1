@@ -167,25 +167,42 @@ export function AppProvider({ children }) {
     }
   }, [authStatus, currentUserId, applyTasksResponses, toast])
 
-  const refreshTasks = useCallback(async () => {
-    if (!currentUserId) return
-    setIsLoading(true)
-    try {
-      const [activeRes, deletedRes] = await Promise.all([
-        tasksService.getTasks('active'),
-        tasksService.getTasks('deleted'),
-      ])
-      applyTasksResponses(activeRes, deletedRes)
-    } catch (error) {
-      toast({
-        title: 'Błąd odświeżania zadań',
-        description: error?.message || 'Nie udało się pobrać listy zadań.',
-        variant: 'destructive',
-      })
-    } finally {
-      setIsLoading(false)
-    }
-  }, [currentUserId, applyTasksResponses, toast])
+  const [focusedTaskId, setFocusedTaskId] = useState(null)
+
+  const focusTask = useCallback((taskId) => {
+    setFocusedTaskId(taskId)
+  }, [])
+
+  const clearFocusedTask = useCallback(() => {
+    setFocusedTaskId(null)
+  }, [])
+
+  const refreshTasks = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!currentUserId) return
+      if (!silent) setIsLoading(true)
+      try {
+        const [activeRes, deletedRes] = await Promise.all([
+          tasksService.getTasks('active'),
+          tasksService.getTasks('deleted'),
+        ])
+        applyTasksResponses(activeRes, deletedRes)
+      } catch (error) {
+        if (!silent) {
+          toast({
+            title: 'Błąd odświeżania zadań',
+            description: error?.message || 'Nie udało się pobrać listy zadań.',
+            variant: 'destructive',
+          })
+        }
+      } finally {
+        if (!silent) {
+          setIsLoading(false)
+        }
+      }
+    },
+    [currentUserId, applyTasksResponses, toast]
+  )
 
   const addTask = useCallback(
     async (taskData) => {
@@ -540,6 +557,9 @@ export function AppProvider({ children }) {
       assignments,
       isLoading,
       refreshTasks,
+      focusedTaskId,
+      focusTask,
+      clearFocusedTask,
       addTask,
       updateTask,
       assignTask,
@@ -564,6 +584,9 @@ export function AppProvider({ children }) {
       assignments,
       isLoading,
       refreshTasks,
+      focusedTaskId,
+      focusTask,
+      clearFocusedTask,
       addTask,
       updateTask,
       assignTask,

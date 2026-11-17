@@ -1,6 +1,7 @@
 import { getDb, withTransaction } from '../db/connection.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { logAudit, nowIso } from './auditService.js';
+import { recordLiveEvent } from './eventsService.js';
 
 export async function getPublicApplications(db = getDb()) {
   return await db
@@ -551,6 +552,29 @@ export async function convertBugToTask(
       details: { task_id: taskId, task_title: taskTitle },
       ipAddress: clientMeta.ipAddress,
       userAgent: clientMeta.userAgent,
+    });
+
+    const targetUserIds = taskData.employee_id
+      ? Array.from(new Set([actorUser.id, taskData.employee_id]))
+      : [actorUser.id];
+
+    const actorFullName = `${actorUser.first_name || ''} ${actorUser.last_name || ''}`.trim() || 'Użytkownik';
+    await recordLiveEvent(tx, {
+      organizationId: orgId,
+      eventType: 'BUG_CONVERTED_TO_TASK',
+      entityType: 'task',
+      entityId: taskId,
+      actorId: actorUser.id,
+      actorName: actorFullName,
+      targetUserIds,
+      title: 'Błąd przekształcony w zadanie',
+      description: `${actorFullName} przekształcił zgłoszenie [${bug.tracking_code}] w zadanie: "${taskTitle}"`,
+      payload: {
+        taskId,
+        taskTitle,
+        trackingCode: bug.tracking_code,
+        employeeId: taskData.employee_id || null,
+      },
     });
 
     createdTask = await tx.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);

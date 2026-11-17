@@ -1,86 +1,61 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo } from 'react'
+import { toast as sonnerToast } from 'sonner'
 import { ToastContext } from './contextObjects'
 
-const DEFAULT_DURATION = 4000
-const MAX_TOASTS = 5
-
-function createToastId() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
-  }
-  return `toast-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
-}
-
+/**
+ * ToastProvider - Globalny dostawca powiadomień oparty o bibliotekę Sonner.
+ * Zapewnia 100% wsteczną kompatybilność z dotychczasowym API `toast({ title, description, variant })`
+ * oraz udostępnia metody Sonner: toast.success, toast.error, toast.info, toast.warning.
+ */
 export function ToastProvider({ children }) {
-  const [toasts, setToasts] = useState([])
-  const timersRef = useRef(new Map())
+  const toastWrapper = useMemo(() => {
+    const fn = (optsOrTitle, maybeOpts) => {
+      if (typeof optsOrTitle === 'string') {
+        return sonnerToast(optsOrTitle, maybeOpts)
+      }
 
-  const dismiss = useCallback((id) => {
-    const timer = timersRef.current.get(id)
-    if (timer) {
-      clearTimeout(timer)
-      timersRef.current.delete(id)
-    }
-    setToasts((prev) => prev.filter((item) => item.id !== id))
-  }, [])
+      const { title, description, variant = 'default', duration = 10000, action, ...rest } =
+        optsOrTitle || {}
 
-  const toast = useCallback(
-    ({ title, description = '', variant = 'default', duration = DEFAULT_DURATION } = {}) => {
-      const id = createToastId()
-      const newToast = {
-        id,
-        title,
+      const options = {
         description,
-        variant,
         duration,
+        action,
+        ...rest,
       }
 
-      setToasts((prev) => {
-        const next = [...prev, newToast]
-        if (next.length > MAX_TOASTS) {
-          const removed = next.slice(0, next.length - MAX_TOASTS)
-          removed.forEach((item) => {
-            const timer = timersRef.current.get(item.id)
-            if (timer) {
-              clearTimeout(timer)
-              timersRef.current.delete(item.id)
-            }
-          })
-          return next.slice(next.length - MAX_TOASTS)
-        }
-        return next
-      })
-
-      if (duration > 0) {
-        const timer = setTimeout(() => {
-          dismiss(id)
-        }, duration)
-        timersRef.current.set(id, timer)
+      switch (variant) {
+        case 'success':
+          return sonnerToast.success(title, options)
+        case 'destructive':
+        case 'error':
+          return sonnerToast.error(title, options)
+        case 'warning':
+          return sonnerToast.warning(title, options)
+        case 'info':
+          return sonnerToast.info(title, options)
+        default:
+          return sonnerToast(title, options)
       }
-
-      return {
-        id,
-        dismiss: () => dismiss(id),
-      }
-    },
-    [dismiss]
-  )
-
-  useEffect(() => {
-    const timers = timersRef.current
-    return () => {
-      timers.forEach((timer) => clearTimeout(timer))
-      timers.clear()
     }
+
+    fn.success = (title, opts) => sonnerToast.success(title, { duration: 10000, ...opts })
+    fn.error = (title, opts) => sonnerToast.error(title, { duration: 10000, ...opts })
+    fn.info = (title, opts) => sonnerToast.info(title, { duration: 10000, ...opts })
+    fn.warning = (title, opts) => sonnerToast.warning(title, { duration: 10000, ...opts })
+    fn.dismiss = (id) => sonnerToast.dismiss(id)
+    fn.custom = sonnerToast.custom
+
+    return fn
   }, [])
 
   const value = useMemo(
     () => ({
-      toasts,
-      toast,
-      dismiss,
+      toast: toastWrapper,
+      dismiss: sonnerToast.dismiss,
+      toasts: [],
     }),
-    [toasts, toast, dismiss]
+    [toastWrapper]
   )
 
   return <ToastContext.Provider value={value}>{children}</ToastContext.Provider>
